@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { ChartSpecData } from './types/messages';
 
 const API_BASE_URL = 'http://localhost:3000';
 
@@ -56,6 +57,63 @@ export interface ThreadHistoryResponse {
   events: SSEEvent[];
 }
 
+export interface DashboardSummary {
+  id: string;
+  name: string;
+  plotCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DashboardPlot {
+  id: string;
+  dashboardId: string;
+  title: string;
+  chartSpec: ChartSpecData;
+  chartOption?: ChartSpecData['option'] | null;
+  agentType?: string | null;
+  sourceThreadId?: string | null;
+  sourceEventId?: string | null;
+  layout: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DashboardDetailsResponse {
+  dashboard: DashboardSummary;
+  plots: DashboardPlot[];
+  maxPlots: number;
+}
+
+export interface DashboardListResponse {
+  dashboards: DashboardSummary[];
+  maxPlots: number;
+}
+
+export interface CreatePlotRequest {
+  title: string;
+  chartSpec: ChartSpecData;
+  chartOption?: ChartSpecData['option'] | null;
+  agentType?: string | null;
+  sourceThreadId?: string | null;
+  sourceEventId?: string | null;
+  layout?: {
+    x?: number;
+    y?: number;
+    w?: number;
+    h?: number;
+  };
+}
+
+export interface UpdatePlotRequest extends Partial<CreatePlotRequest> {
+  dashboardId?: string;
+}
+
 class ApiService {
   private axios = axios.create({
     baseURL: API_BASE_URL,
@@ -102,6 +160,39 @@ class ApiService {
   // Resume thread
   async resumeThread(agentType: string, threadId: string): Promise<void> {
     await this.axios.post('/threads/resume', { agentType, threadId });
+  }
+
+  async getDashboards(): Promise<DashboardListResponse> {
+    const response = await this.axios.get('/dashboards');
+    return response.data;
+  }
+
+  async createDashboard(name: string): Promise<DashboardSummary> {
+    const response = await this.axios.post('/dashboards', { name });
+    return response.data.dashboard;
+  }
+
+  async getDashboard(dashboardId: string): Promise<DashboardDetailsResponse> {
+    const response = await this.axios.get(`/dashboards/${dashboardId}`);
+    return response.data;
+  }
+
+  async deleteDashboard(dashboardId: string): Promise<void> {
+    await this.axios.delete(`/dashboards/${dashboardId}`);
+  }
+
+  async addPlotToDashboard(dashboardId: string, payload: CreatePlotRequest): Promise<DashboardPlot> {
+    const response = await this.axios.post(`/dashboards/${dashboardId}/plots`, payload);
+    return response.data.plot;
+  }
+
+  async updateDashboardPlot(dashboardId: string, plotId: string, payload: UpdatePlotRequest): Promise<DashboardPlot> {
+    const response = await this.axios.put(`/dashboards/${dashboardId}/plots/${plotId}`, payload);
+    return response.data.plot;
+  }
+
+  async deleteDashboardPlot(dashboardId: string, plotId: string): Promise<void> {
+    await this.axios.delete(`/dashboards/${dashboardId}/plots/${plotId}`);
   }
 
   // Create SSE connection

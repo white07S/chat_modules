@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { apiService, Agent, SSEEvent, PersistedThread } from './api';
+import { apiService, Agent, SSEEvent, PersistedThread, DashboardSummary, DashboardDetailsResponse } from './api';
 import { MessageList } from './components/MessageList';
 import { MessageInput } from './components/MessageInput';
-import { Message } from './types/messages';
+import { Message, ChartSpecData } from './types/messages';
 import { collectTextFromToolContent, parseChartSpec, parseSqlResult, safeJsonParse } from './utils/parsers';
 import { ThreadSidebar } from './components/ThreadSidebar';
+import { DashboardPinModal, DashboardPinResult } from './components/DashboardPinModal';
+import { DashboardView } from './components/DashboardView';
 
 export const Chat: React.FC = () => {
   // Event type labels mapping (1-2 words each)
@@ -68,6 +70,20 @@ export const Chat: React.FC = () => {
   const [threadFilterAgent, setThreadFilterAgent] = useState<string>('all');
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [newThreadAgent, setNewThreadAgent] = useState<string>('chit_chat');
+  const [dashboards, setDashboards] = useState<DashboardSummary[]>([]);
+  const [maxDashboardPlots, setMaxDashboardPlots] = useState<number>(6);
+  const [selectedDashboardId, setSelectedDashboardId] = useState<string | null>(null);
+  const [activeDashboard, setActiveDashboard] = useState<DashboardDetailsResponse | null>(null);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<'chat' | 'dashboard'>('chat');
+  const [pinModalData, setPinModalData] = useState<{
+    chartSpec: ChartSpecData | null | undefined;
+    agentType?: string;
+    sourceThreadId?: string | null;
+    title: string;
+  } | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const isDashboardView = viewMode === 'dashboard' && !!selectedDashboardId;
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const isConnectedRef = useRef(false);
@@ -100,9 +116,182 @@ export const Chat: React.FC = () => {
     });
   }, [addMessage]);
 
+  const loadDashboards = useCallback(async () => {
+    try {
+      const response = await apiService.getDashboards();
+      setDashboards(response.dashboards);
+      setMaxDashboardPlots(response.maxPlots ?? 6);
+      setDashboardError(null);
+    } catch (error) {
+      console.error('Failed to load dashboards:', error);
+      setDashboardError('Failed to load dashboards.');
+      addSystemMessage('Failed to load dashboards.', 'error');
+    }
+  }, [addSystemMessage]);
+
+  const loadDashboardDetails = useCallback(async (dashboardId: string) => {
+    setIsDashboardLoading(true);
+    setDashboardError(null);
+    try {
+      const details = await apiService.getDashboard(dashboardId);
+      setActiveDashboard(details);
+    } catch (error) {
+      console.error('Failed to load dashboard:', error);
+      setDashboardError('Failed to load dashboard.');
+      addSystemMessage('Failed to load dashboard.', 'error');
+    } finally {
+      setIsDashboardLoading(false);
+    }
+  }, [addSystemMessage]);
+
+  const handleDashboardSelect = useCallback((dashboard: DashboardSummary) => {
+    setSelectedDashboardId(dashboard.id);
+    setViewMode('dashboard');
+    setActiveDashboard(null);
+    loadDashboardDetails(dashboard.id);
+  }, [loadDashboardDetails]);
+
+  const handleDashboardRefresh = useCallback(() => {
+    loadDashboards();
+    if (selectedDashboardId) {
+      loadDashboardDetails(selectedDashboardId);
+    }
+  }, [loadDashboards, loadDashboardDetails, selectedDashboardId]);
+
+  const handleNewDashboard = useCallback(async () => {
+    const name = window.prompt('Name your new dashboard');
+    if (!name) {
+      return;
+    }
+    try {
+      await apiService.createDashboard(name.trim());
+      await loadDashboards();
+      addSystemMessage(`Dashboard "${name.trim()}" created.`);
+    } catch (error) {
+      console.error('Failed to create dashboard:', error);
+      addSystemMessage('Failed to create dashboard.', 'error');
+    }
+  }, [loadDashboards, addSystemMessage]);
+
+  const exitDashboardView = useCallback(() => {
+    setSelectedDashboardId(null);
+    setViewMode('chat');
+    setActiveDashboard(null);
+  }, []);
+
+  const handleRemovePlot = useCallback(async (plotId: string) => {
+    if (!selectedDashboardId) return;
+    try {
+      await apiService.deleteDashboardPlot(selectedDashboardId, plotId);
+      await Promise.all([
+        loadDashboardDetails(selectedDashboardId),
+        loadDashboards()
+      ]);
+      addSystemMessage('Plot removed from dashboard.');
+    } catch (error) {
+      console.error('Failed to remove plot:', error);
+      addSystemMessage('Failed to remove plot.', 'error');
+    }
+  }, [selectedDashboardId, loadDashboardDetails, loadDashboards, addSystemMessage]);
+
+  const handleMovePlot = useCallback(async (plotId: string, destinationDashboardId: string) => {
+    if (!selectedDashboardId) return;
+    try {
+      await apiService.updateDashboardPlot(destinationDashboardId, plotId, {
+        dashboardId: destinationDashboardId
+      });
+      if (destinationDashboardId === selectedDashboardId) {
+        await loadDashboardDetails(destinationDashboardId);
+      } else {
+        await Promise.all([
+          loadDashboardDetails(selectedDashboardId),
+          loadDashboards()
+        ]);
+      }
+      addSystemMessage('Plot moved successfully.');
+    } catch (error) {
+      console.error('Failed to move plot:', error);
+      addSystemMessage('Failed to move plot.', 'error');
+    }
+  }, [selectedDashboardId, loadDashboardDetails, loadDashboards, addSystemMessage]);
+
+  const handlePlotLayoutChange = useCallback(async (plotId: string, layout: { x: number; y: number; w: number; h: number }) => {
+    if (!selectedDashboardId) return;
+    try {
+      await apiService.updateDashboardPlot(selectedDashboardId, plotId, { layout });
+    } catch (error) {
+      console.error('Failed to update layout:', error);
+    }
+  }, [selectedDashboardId]);
+
+  const handlePinChartRequest = useCallback((message: Message) => {
+    const chartSpec = message.agentResponse?.chartSpec;
+    if (!chartSpec || !chartSpec.option) {
+      addSystemMessage('No chart data available to pin.', 'error');
+      return;
+    }
+    const resolvedTitle = (() => {
+      const optionTitle = (chartSpec.option as any)?.title;
+      if (typeof optionTitle === 'object' && optionTitle?.text) {
+        return optionTitle.text as string;
+      }
+      return `Viz Chart - ${new Date().toLocaleString()}`;
+    })();
+    setPinModalData({
+      chartSpec,
+      agentType: message.agentType,
+      sourceThreadId: currentThreadId,
+      title: resolvedTitle
+    });
+  }, [addSystemMessage, currentThreadId]);
+
+  const handlePinModalClose = useCallback(() => {
+    setPinModalData(null);
+  }, []);
+
+  const handlePinModalSubmit = useCallback(async (result: DashboardPinResult) => {
+    if (!pinModalData?.chartSpec) {
+      setPinModalData(null);
+      return;
+    }
+    try {
+      let dashboardId = result.dashboardId;
+      if (result.mode === 'new') {
+        if (!result.dashboardName) {
+          throw new Error('Dashboard name required');
+        }
+        const newDashboard = await apiService.createDashboard(result.dashboardName);
+        dashboardId = newDashboard.id;
+        await loadDashboards();
+      }
+      if (!dashboardId) {
+        throw new Error('Dashboard selection required');
+      }
+      await apiService.addPlotToDashboard(dashboardId, {
+        title: result.title,
+        chartSpec: pinModalData.chartSpec,
+        chartOption: pinModalData.chartSpec?.option ?? null,
+        agentType: pinModalData.agentType,
+        sourceThreadId: pinModalData.sourceThreadId ?? currentThreadId ?? null
+      });
+      await loadDashboards();
+      if (selectedDashboardId === dashboardId) {
+        await loadDashboardDetails(dashboardId);
+      }
+      const target = dashboards.find(d => d.id === dashboardId);
+      addSystemMessage(`Pinned chart to dashboard "${target?.name || result.dashboardName || 'Dashboard'}".`);
+    } catch (error) {
+      console.error('Failed to pin chart:', error);
+      addSystemMessage('Failed to pin chart.', 'error');
+    } finally {
+      setPinModalData(null);
+    }
+  }, [pinModalData, currentThreadId, selectedDashboardId, loadDashboardDetails, loadDashboards, dashboards, addSystemMessage]);
+
   // Load agents on mount
   useEffect(() => {
     loadAgents();
+    loadDashboards();
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -353,6 +542,27 @@ export const Chat: React.FC = () => {
     if (!event.event) return;
 
     const agentEvent = event.event;
+    const ensureConversationActive = () => {
+      if (currentConversationRef.current) {
+        return currentConversationRef.current;
+      }
+
+      const convId = uuidv4();
+      setActiveConversationId(convId);
+      const newConversation: Message = {
+        id: convId,
+        type: 'conversation',
+        content: '',
+        timestamp: new Date().toISOString(),
+        agentType: event.agentType || selectedAgent,
+        userMessage: '',
+        assistantMessage: '',
+        timeline: [],
+        isStreaming: true
+      };
+      setMessages(prev => [...prev, newConversation]);
+      return convId;
+    };
 
     switch (agentEvent.type) {
       // Session and thread events
@@ -365,23 +575,7 @@ export const Chat: React.FC = () => {
         break;
 
       case 'turn.started':
-        // Start a new conversation when turn starts
-        if (!currentConversationRef.current) {
-          const convId = uuidv4();
-          setActiveConversationId(convId);
-          const newConversation: Message = {
-            id: convId,
-            type: 'conversation',
-            content: '',
-            timestamp: new Date().toISOString(),
-            agentType: selectedAgent,
-            userMessage: '',
-            assistantMessage: '',
-            timeline: [],
-            isStreaming: true
-          };
-          setMessages(prev => [...prev, newConversation]);
-        }
+        ensureConversationActive();
         addTimelineEvent(getEventLabel('turn.started'), 'Processing...');
         break;
 
@@ -389,6 +583,7 @@ export const Chat: React.FC = () => {
       case 'response_item':
         if (agentEvent.payload?.type === 'message') {
           if (agentEvent.payload.role === 'user') {
+            ensureConversationActive();
             const content = agentEvent.payload.content?.[0];
             if (content?.text) {
               updateConversation((current) => {
@@ -422,6 +617,7 @@ export const Chat: React.FC = () => {
       case 'event_msg':
         if (agentEvent.payload?.type === 'agent_message') {
           // This is the actual text being streamed
+          ensureConversationActive();
           updateConversation({
             assistantMessage: agentEvent.payload.message,
             isStreaming: true
@@ -455,7 +651,7 @@ export const Chat: React.FC = () => {
 
       case 'item.streaming':
         // This is where partial content comes through during streaming
-        const activeConversationId = currentConversationRef.current;
+        const activeConversationId = currentConversationRef.current || ensureConversationActive();
         if (agentEvent.item?.content && activeConversationId) {
           setMessages(prev => {
             const idx = prev.findIndex(m => m.id === activeConversationId);
@@ -476,6 +672,7 @@ export const Chat: React.FC = () => {
       case 'item.completed':
         if (agentEvent.item?.type === 'agent_message' && agentEvent.item?.text) {
           // Final complete message
+          ensureConversationActive();
           updateConversation({
             assistantMessage: agentEvent.item.text,
             agentResponse: {
@@ -563,6 +760,7 @@ export const Chat: React.FC = () => {
   };
 
   const handleNewThread = (agentType?: string) => {
+    exitDashboardView();
     const targetAgent = agentType || selectedAgent;
     if (targetAgent !== selectedAgent) {
       setSelectedAgent(targetAgent);
@@ -601,6 +799,7 @@ export const Chat: React.FC = () => {
       return;
     }
 
+    exitDashboardView();
     setIsHistoryLoading(true);
     try {
       await apiService.resumeThread(thread.agentType, thread.threadId);
@@ -629,6 +828,7 @@ export const Chat: React.FC = () => {
   };
 
   return (
+    <>
     <div className="flex h-screen bg-gray-50">
       <ThreadSidebar
         threads={persistedThreads}
@@ -643,38 +843,100 @@ export const Chat: React.FC = () => {
         newThreadAgent={newThreadAgent}
         onNewThreadAgentChange={setNewThreadAgent}
         disableNewThread={isProcessing || isHistoryLoading}
+        dashboards={dashboards}
+        selectedDashboardId={selectedDashboardId}
+        onSelectDashboard={handleDashboardSelect}
+        onNewDashboard={handleNewDashboard}
+        onDashboardRefresh={handleDashboardRefresh}
+        isDashboardLoading={isDashboardLoading}
+        maxDashboardPlots={maxDashboardPlots}
       />
       <div className="flex flex-col flex-1">
         <div className="bg-white shadow-sm border-b border-gray-200">
-          <div className="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-xs uppercase text-gray-500">Thread</div>
-              <div className="text-sm font-mono text-gray-800">
-                {currentThreadId || 'New thread'}
+          {isDashboardView ? (
+            <div className="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-xs uppercase text-gray-500">Dashboard</div>
+                <div className="text-sm font-semibold text-gray-900">
+                  {activeDashboard?.dashboard.name || 'Loading...'}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {selectedDashboardId}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDashboardRefresh}
+                  className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                >
+                  Refresh
+                </button>
+                <button
+                  onClick={exitDashboardView}
+                  className="px-3 py-2 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                >
+                  Back to Threads
+                </button>
               </div>
             </div>
-            <div className="text-sm text-gray-600">
-              Agent: <span className="font-semibold text-gray-900">{selectedAgent}</span>
+          ) : (
+            <div className="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-xs uppercase text-gray-500">Thread</div>
+                <div className="text-sm font-mono text-gray-800">
+                  {currentThreadId || 'New thread'}
+                </div>
+              </div>
+              <div className="text-sm text-gray-600">
+                Agent: <span className="font-semibold text-gray-900">{selectedAgent}</span>
+              </div>
+              {isProcessing && (
+                <button
+                  onClick={handleStopJob}
+                  className="px-4 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
+                >
+                  Stop Job
+                </button>
+              )}
             </div>
-            {isProcessing && (
-              <button
-                onClick={handleStopJob}
-                className="px-4 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
-              >
-                Stop Job
-              </button>
-            )}
-          </div>
+          )}
         </div>
 
-        <MessageList messages={messages} isLoadingHistory={isHistoryLoading} />
+        {isDashboardView ? (
+          <DashboardView
+            details={activeDashboard}
+            dashboards={dashboards}
+            isLoading={isDashboardLoading}
+            onMovePlot={handleMovePlot}
+            onRemovePlot={handleRemovePlot}
+            onLayoutChange={handlePlotLayoutChange}
+            error={dashboardError}
+          />
+        ) : (
+          <>
+            <MessageList
+              messages={messages}
+              isLoadingHistory={isHistoryLoading}
+              onPinChart={handlePinChartRequest}
+            />
 
-        <MessageInput
-          onSendMessage={sendMessage}
-          isProcessing={isProcessing}
-          disabled={isHistoryLoading}
-        />
+            <MessageInput
+              onSendMessage={sendMessage}
+              isProcessing={isProcessing}
+              disabled={isHistoryLoading}
+            />
+          </>
+        )}
       </div>
     </div>
+      <DashboardPinModal
+        isOpen={Boolean(pinModalData)}
+        dashboards={dashboards}
+        defaultTitle={pinModalData?.title || 'Pinned chart'}
+        maxPlots={maxDashboardPlots}
+        onSubmit={handlePinModalSubmit}
+        onClose={handlePinModalClose}
+      />
+    </>
   );
 };

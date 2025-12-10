@@ -60,4 +60,37 @@ export const initializeDatabase = async (): Promise<void> => {
     });
     logger.info({ event: 'db_schema', table: 'thread_events' }, 'Created thread_events table');
   }
+
+  const hasDashboards = await db.schema.hasTable('dashboards');
+  if (!hasDashboards) {
+    await db.schema.createTable('dashboards', (table) => {
+      table.string('id').primary();
+      table.string('name').notNullable();
+      table.timestamp('created_at').defaultTo(db.fn.now());
+      table.timestamp('updated_at').defaultTo(db.fn.now());
+    });
+    logger.info({ event: 'db_schema', table: 'dashboards' }, 'Created dashboards table');
+  }
+
+  const hasDashboardPlots = await db.schema.hasTable('dashboard_plots');
+  if (!hasDashboardPlots) {
+    await db.schema.createTable('dashboard_plots', (table) => {
+      table.string('id').primary();
+      table.string('dashboard_id').notNullable().references('dashboards.id').onDelete('CASCADE');
+      table.string('title').notNullable();
+      table.text('chart_spec').notNullable();
+      table.text('chart_option');
+      table.string('agent_type');
+      table.string('source_thread_id');
+      table.string('source_event_id');
+      table.integer('layout_x').defaultTo(0);
+      table.integer('layout_y').defaultTo(0);
+      table.integer('layout_w').defaultTo(6);
+      table.integer('layout_h').defaultTo(6);
+      table.timestamp('created_at').defaultTo(db.fn.now());
+      table.timestamp('updated_at').defaultTo(db.fn.now());
+      table.index(['dashboard_id'], 'idx_dashboard_plots_dashboard_id');
+    });
+    logger.info({ event: 'db_schema', table: 'dashboard_plots' }, 'Created dashboard_plots table');
+  }
 };

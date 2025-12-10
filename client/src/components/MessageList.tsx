@@ -7,6 +7,7 @@ import { Message, DbToolCall, ChartSpecData } from '../types/messages';
 interface MessageListProps {
   messages: Message[];
   isLoadingHistory?: boolean;
+  onPinChart?: (message: Message) => void;
 }
 
 type TabKey = 'response' | 'db' | 'chart';
@@ -218,7 +219,7 @@ const DbResultsTab: React.FC<{ calls: DbToolCall[] }> = ({ calls }) => {
   );
 };
 
-const ChartTab: React.FC<{ spec?: ChartSpecData | null }> = ({ spec }) => {
+const ChartTab: React.FC<{ spec?: ChartSpecData | null; onPin?: () => void }> = ({ spec, onPin }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<EChartsInstance | null>(null);
 
@@ -256,6 +257,17 @@ const ChartTab: React.FC<{ spec?: ChartSpecData | null }> = ({ spec }) => {
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-600">Rendered chart</p>
+        {onPin && spec?.option && (
+          <button
+            onClick={onPin}
+            className="text-xs px-3 py-1 rounded-md border border-purple-500 text-purple-600 hover:bg-purple-50"
+          >
+            Pin to dashboard
+          </button>
+        )}
+      </div>
       {spec.parseError && (
         <div className="text-xs text-red-600">
           Unable to parse chart specification: {spec.parseError}
@@ -278,7 +290,7 @@ const ChartTab: React.FC<{ spec?: ChartSpecData | null }> = ({ spec }) => {
   );
 };
 
-const AgentResponseTabs: React.FC<{ message: Message }> = ({ message }) => {
+const AgentResponseTabs: React.FC<{ message: Message; onPinChart?: (message: Message) => void }> = ({ message, onPinChart }) => {
   const dbCalls = message.agentResponse?.dbCalls || [];
   const chartSpec = message.agentResponse?.chartSpec;
   const hasChartData = Boolean(chartSpec);
@@ -316,7 +328,7 @@ const AgentResponseTabs: React.FC<{ message: Message }> = ({ message }) => {
           <div className="text-sm text-gray-600">No SQL calls captured.</div>
         );
       case 'chart':
-        return <ChartTab spec={chartSpec} />;
+        return <ChartTab spec={chartSpec} onPin={() => onPinChart?.(message)} />;
       case 'response':
       default:
         if (message.agentResponse?.finalMessage || message.assistantMessage) {
@@ -359,12 +371,14 @@ interface ConversationMessageProps {
   message: Message;
   isTimelineExpanded: boolean;
   onToggleTimeline: () => void;
+  onPinChart?: (message: Message) => void;
 }
 
 const ConversationMessage: React.FC<ConversationMessageProps> = ({
   message,
   isTimelineExpanded,
-  onToggleTimeline
+  onToggleTimeline,
+  onPinChart
 }) => {
   const timestamp = new Date(message.timestamp).toLocaleTimeString();
   const hasAgentData = Boolean(
@@ -396,7 +410,7 @@ const ConversationMessage: React.FC<ConversationMessageProps> = ({
             <span>{timestamp}</span>
           </div>
           {hasAgentData ? (
-            <AgentResponseTabs message={message} />
+            <AgentResponseTabs message={message} onPinChart={onPinChart} />
           ) : (
             <StreamingResponse message={message} />
           )}
@@ -428,7 +442,7 @@ const ConversationMessage: React.FC<ConversationMessageProps> = ({
   );
 };
 
-export const MessageList: React.FC<MessageListProps> = ({ messages, isLoadingHistory = false }) => {
+export const MessageList: React.FC<MessageListProps> = ({ messages, isLoadingHistory = false, onPinChart }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [expandedTimelines, setExpandedTimelines] = useState<Set<string>>(new Set());
 
@@ -483,6 +497,7 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, isLoadingHis
               message={message}
               isTimelineExpanded={isExpanded}
               onToggleTimeline={() => toggleTimeline(message.id)}
+              onPinChart={onPinChart}
             />
           );
         }

@@ -10,6 +10,7 @@ import { AgentManager } from './lib/AgentManager.js';
 import { SSEManager } from './lib/SSEManager.js';
 import { initializeDatabase } from './lib/db.js';
 import { ThreadStore } from './lib/ThreadStore.js';
+import { DashboardStore, MAX_PLOTS_PER_DASHBOARD } from './lib/DashboardStore.js';
 
 // Load environment variables
 config({ path: '.env.dev' });
@@ -41,6 +42,7 @@ class CodexChatServer {
   private agentManager: AgentManager;
   private sseManager: SSEManager;
   private threadStore: ThreadStore;
+  private dashboardStore: DashboardStore;
   private jobs: Map<string, JobInfo> = new Map();
   private port: number;
 
@@ -49,6 +51,7 @@ class CodexChatServer {
     this.agentManager = new AgentManager();
     this.sseManager = new SSEManager();
     this.threadStore = new ThreadStore();
+    this.dashboardStore = new DashboardStore();
     this.port = parseInt(process.env.PORT || '3000', 10);
   }
 
@@ -156,6 +159,207 @@ class CodexChatServer {
           error: error instanceof Error ? error.message : String(error)
         }, 'Failed to fetch session events');
         res.status(500).json({ error: 'Failed to fetch session events' });
+      }
+    });
+
+    // Dashboard endpoints
+    this.app.get('/dashboards', async (_req, res) => {
+      try {
+        const dashboards = await this.dashboardStore.listDashboards();
+        res.json({ dashboards, maxPlots: MAX_PLOTS_PER_DASHBOARD });
+      } catch (error) {
+        logger.error({
+          event: 'dashboards_list_error',
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to list dashboards');
+        res.status(500).json({ error: 'Failed to list dashboards' });
+      }
+    });
+
+    this.app.post('/dashboards', async (req, res) => {
+      try {
+        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+        if (!name) {
+          res.status(400).json({ error: 'Dashboard name is required' });
+          return;
+        }
+
+        const dashboard = await this.dashboardStore.createDashboard({ name });
+        res.status(201).json({ dashboard, maxPlots: MAX_PLOTS_PER_DASHBOARD });
+      } catch (error) {
+        logger.error({
+          event: 'dashboard_create_error',
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to create dashboard');
+        res.status(500).json({ error: 'Failed to create dashboard' });
+      }
+    });
+
+    this.app.get('/dashboards/:dashboardId', async (req, res) => {
+      try {
+        const dashboard = await this.dashboardStore.getDashboard(req.params.dashboardId);
+        if (!dashboard) {
+          res.status(404).json({ error: 'Dashboard not found' });
+          return;
+        }
+        res.json({ ...dashboard, maxPlots: MAX_PLOTS_PER_DASHBOARD });
+      } catch (error) {
+        logger.error({
+          event: 'dashboard_detail_error',
+          dashboardId: req.params.dashboardId,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to fetch dashboard details');
+        res.status(500).json({ error: 'Failed to fetch dashboard details' });
+      }
+    });
+
+    this.app.put('/dashboards/:dashboardId', async (req, res) => {
+      try {
+        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+        if (!name) {
+          res.status(400).json({ error: 'Dashboard name is required' });
+          return;
+        }
+        await this.dashboardStore.updateDashboard(req.params.dashboardId, { name });
+        const dashboard = await this.dashboardStore.getDashboard(req.params.dashboardId);
+        if (!dashboard) {
+          res.status(404).json({ error: 'Dashboard not found' });
+          return;
+        }
+        res.json({ ...dashboard, maxPlots: MAX_PLOTS_PER_DASHBOARD });
+      } catch (error) {
+        logger.error({
+          event: 'dashboard_update_error',
+          dashboardId: req.params.dashboardId,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to update dashboard');
+        res.status(500).json({ error: 'Failed to update dashboard' });
+      }
+    });
+
+    this.app.delete('/dashboards/:dashboardId', async (req, res) => {
+      try {
+        await this.dashboardStore.deleteDashboard(req.params.dashboardId);
+        res.status(204).send();
+      } catch (error) {
+        logger.error({
+          event: 'dashboard_delete_error',
+          dashboardId: req.params.dashboardId,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to delete dashboard');
+        res.status(500).json({ error: 'Failed to delete dashboard' });
+      }
+    });
+
+    this.app.post('/dashboards/:dashboardId/plots', async (req, res) => {
+      try {
+        const dashboardId = req.params.dashboardId;
+        const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+        if (!title) {
+          res.status(400).json({ error: 'Plot title is required' });
+          return;
+        }
+
+        const chartSpec = req.body?.chartSpec;
+        if (!chartSpec || typeof chartSpec !== 'object') {
+          res.status(400).json({ error: 'chartSpec is required' });
+          return;
+        }
+
+        const chartOption = req.body?.chartOption && typeof req.body.chartOption === 'object'
+          ? req.body.chartOption
+          : null;
+
+        const layout = req.body?.layout && typeof req.body.layout === 'object'
+          ? req.body.layout
+          : undefined;
+
+        const plot = await this.dashboardStore.addPlot({
+          dashboardId,
+          title,
+          chartSpec,
+          chartOption,
+          agentType: req.body?.agentType,
+          sourceThreadId: req.body?.sourceThreadId,
+          sourceEventId: req.body?.sourceEventId,
+          layout
+        });
+
+        res.status(201).json({ plot });
+      } catch (error) {
+        const isCapacityError = error instanceof Error && /capacity/i.test(error.message);
+        logger.error({
+          event: 'dashboard_plot_create_error',
+          dashboardId: req.params.dashboardId,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to add plot');
+        res
+          .status(isCapacityError ? 400 : 500)
+          .json({
+            error: isCapacityError ? 'Dashboard is at capacity' : 'Failed to add plot',
+            maxPlots: MAX_PLOTS_PER_DASHBOARD
+          });
+      }
+    });
+
+    this.app.put('/dashboards/:dashboardId/plots/:plotId', async (req, res) => {
+      try {
+        const layout = req.body?.layout && typeof req.body.layout === 'object'
+          ? req.body.layout
+          : undefined;
+        const targetDashboardId = typeof req.body?.dashboardId === 'string'
+          ? req.body.dashboardId
+          : req.params.dashboardId;
+
+        const updates = await this.dashboardStore.updatePlot(req.params.plotId, {
+          dashboardId: targetDashboardId,
+          title: typeof req.body?.title === 'string' ? req.body.title : undefined,
+          chartSpec: req.body?.chartSpec && typeof req.body.chartSpec === 'object'
+            ? req.body.chartSpec
+            : undefined,
+          chartOption: req.body?.chartOption && typeof req.body.chartOption === 'object'
+            ? req.body.chartOption
+            : req.body?.chartOption === null
+              ? null
+              : undefined,
+          layout
+        });
+
+        if (!updates) {
+          res.status(404).json({ error: 'Plot not found' });
+          return;
+        }
+
+        res.json({ plot: updates });
+      } catch (error) {
+        const isCapacityError = error instanceof Error && /capacity/i.test(error.message);
+        logger.error({
+          event: 'dashboard_plot_update_error',
+          dashboardId: req.params.dashboardId,
+          plotId: req.params.plotId,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to update plot');
+        res
+          .status(isCapacityError ? 400 : 500)
+          .json({
+            error: isCapacityError ? 'Dashboard is at capacity' : 'Failed to update plot',
+            maxPlots: MAX_PLOTS_PER_DASHBOARD
+          });
+      }
+    });
+
+    this.app.delete('/dashboards/:dashboardId/plots/:plotId', async (req, res) => {
+      try {
+        await this.dashboardStore.deletePlot(req.params.plotId);
+        res.status(204).send();
+      } catch (error) {
+        logger.error({
+          event: 'dashboard_plot_delete_error',
+          dashboardId: req.params.dashboardId,
+          plotId: req.params.plotId,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to delete plot');
+        res.status(500).json({ error: 'Failed to delete plot' });
       }
     });
 
@@ -272,6 +476,14 @@ class CodexChatServer {
       let thread: Thread;
       let actualThreadId: string | null = job.threadId || null;
       let threadMetadataPersisted = false;
+      let userEventPersisted = false;
+
+      const ensureUserEventPersisted = async () => {
+        if (!userEventPersisted && threadMetadataPersisted && actualThreadId && !this.isTemporaryThreadId(actualThreadId)) {
+          await this.persistUserMessageEvent(job, actualThreadId, message);
+          userEventPersisted = true;
+        }
+      };
 
       if (job.threadId) {
         // Try to get existing thread
@@ -329,6 +541,8 @@ class CodexChatServer {
           agentType: job.agentType,
           timestamp: new Date().toISOString()
         });
+
+        await ensureUserEventPersisted();
       }
 
       // Process with streaming
@@ -362,6 +576,8 @@ class CodexChatServer {
             agentType: job.agentType,
             timestamp: new Date().toISOString()
           });
+
+          await ensureUserEventPersisted();
         }
 
         if (!actualThreadId) {
@@ -496,6 +712,35 @@ class CodexChatServer {
 
   private isTemporaryThreadId(id?: string | null): boolean {
     return !!id && id.startsWith('temp_');
+  }
+
+  private async persistUserMessageEvent(job: JobInfo, threadId: string, message: string) {
+    const timestamp = new Date().toISOString();
+    const userEvent = {
+      type: 'agent_event',
+      jobId: job.jobId,
+      agentType: job.agentType,
+      threadId,
+      event: {
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'text', text: message }]
+        },
+        timestamp
+      }
+    };
+
+    this.sseManager.sendToClient(job.clientId, userEvent);
+    await this.safeThreadOperation(
+      () => this.threadStore.appendEvent(threadId, job.jobId, userEvent),
+      {
+        event: 'thread_user_event_persist_error',
+        threadId,
+        jobId: job.jobId
+      }
+    );
   }
 
   private async safeThreadOperation(operation: () => Promise<void>, meta: Record<string, unknown>) {

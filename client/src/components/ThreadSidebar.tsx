@@ -1,5 +1,5 @@
 import React from 'react';
-import { Agent, PersistedThread } from '../api';
+import { Agent, PersistedThread, DashboardSummary } from '../api';
 
 interface ThreadSidebarProps {
   threads: PersistedThread[];
@@ -14,6 +14,13 @@ interface ThreadSidebarProps {
   newThreadAgent: string;
   onNewThreadAgentChange: (value: string) => void;
   disableNewThread?: boolean;
+  dashboards: DashboardSummary[];
+  selectedDashboardId: string | null;
+  onSelectDashboard: (dashboard: DashboardSummary) => void;
+  onNewDashboard: () => void;
+  onDashboardRefresh: () => void;
+  isDashboardLoading?: boolean;
+  maxDashboardPlots: number;
 }
 
 const formatTimestamp = (value: string): string => {
@@ -41,10 +48,67 @@ export const ThreadSidebar: React.FC<ThreadSidebarProps> = ({
   newThreadAgent,
   onNewThreadAgentChange,
   disableNewThread = false,
+  dashboards,
+  selectedDashboardId,
+  onSelectDashboard,
+  onNewDashboard,
+  onDashboardRefresh,
+  isDashboardLoading = false,
+  maxDashboardPlots,
 }) => {
   const isNewThreadDisabled = disableNewThread || agents.length === 0;
   return (
     <div className="w-72 border-r border-gray-200 bg-white flex flex-col">
+      <div className="p-4 border-b border-gray-200 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-800">Dashboards</h2>
+          <button
+            onClick={onDashboardRefresh}
+            className="text-xs text-blue-600 hover:text-blue-800"
+          >
+            Refresh
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">Pin visualizations for viz_agent</p>
+        <button
+          onClick={onNewDashboard}
+          className="w-full text-sm rounded-md py-2 bg-blue-500 text-white hover:bg-blue-600"
+        >
+          + New Dashboard
+        </button>
+        {isDashboardLoading && (
+          <div className="text-xs text-gray-500">Loading dashboards...</div>
+        )}
+        {dashboards.length === 0 && !isDashboardLoading && (
+          <div className="text-xs text-gray-500">No dashboards yet.</div>
+        )}
+        <div className="space-y-2 max-h-48 overflow-y-auto">
+          {dashboards.map((dashboard) => {
+            const isSelected = selectedDashboardId === dashboard.id;
+            return (
+              <button
+                key={dashboard.id}
+                onClick={() => onSelectDashboard(dashboard)}
+                className={`w-full text-left p-3 rounded-md border text-sm ${
+                  isSelected
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50/50'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-gray-800 truncate">{dashboard.name}</span>
+                  <span className="text-[11px] text-gray-500">
+                    {dashboard.plotCount}/{maxDashboardPlots} plots
+                  </span>
+                </div>
+                <div className="text-[11px] text-gray-500 mt-1">
+                  Updated {formatTimestamp(dashboard.updatedAt)}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div className="p-4 border-b border-gray-200 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-800">Threads</h2>
