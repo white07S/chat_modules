@@ -1,0 +1,18 @@
+data: {"type":"connected","clientId":"tool-test-1765301514","timestamp":"2025-12-09T17:31:54.707Z"}
+
+data: {"type":"thread_info","jobId":"c69f7f40-d1ed-4c76-8739-7fac86b14e8b","threadId":"chit_chat_1765301515709_kn5czg","agentType":"chit_chat","timestamp":"2025-12-09T17:31:55.709Z"}
+
+data: {"type":"agent_event","jobId":"c69f7f40-d1ed-4c76-8739-7fac86b14e8b","agentType":"chit_chat","threadId":"chit_chat_1765301515709_kn5czg","event":{"type":"thread.started","thread_id":"019b042b-75d7-7a11-914a-fbb0dab6815e","timestamp":"2025-12-09T17:31:55.758Z"}}
+
+data: {"type":"agent_event","jobId":"c69f7f40-d1ed-4c76-8739-7fac86b14e8b","agentType":"chit_chat","threadId":"chit_chat_1765301515709_kn5czg","event":{"type":"turn.started","timestamp":"2025-12-09T17:31:55.758Z"}}
+
+data: {"type":"agent_event","jobId":"c69f7f40-d1ed-4c76-8739-7fac86b14e8b","agentType":"chit_chat","threadId":"chit_chat_1765301515709_kn5czg","event":{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"zsh -c 'ls -1'","aggregated_output":"","exit_code":null,"status":"in_progress"},"timestamp":"2025-12-09T17:31:58.351Z"}}
+
+data: {"type":"agent_event","jobId":"c69f7f40-d1ed-4c76-8739-7fac86b14e8b","agentType":"chit_chat","threadId":"chit_chat_1765301515709_kn5czg","event":{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"zsh -c 'ls -1'","aggregated_output":"AGENTS.md\nconfig.toml\nsessions\n","exit_code":0,"status":"completed"},"timestamp":"2025-12-09T17:31:58.366Z"}}
+
+data: {"type":"agent_event","jobId":"c69f7f40-d1ed-4c76-8739-7fac86b14e8b","agentType":"chit_chat","threadId":"chit_chat_1765301515709_kn5czg","event":{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"The current directory contains the following files:\n\n- `AGENTS.md`\n- `config.toml`\n- `sessions` (directory)"},"timestamp":"2025-12-09T17:32:00.107Z"}}
+
+data: {"type":"agent_event","jobId":"c69f7f40-d1ed-4c76-8739-7fac86b14e8b","agentType":"chit_chat","threadId":"chit_chat_1765301515709_kn5czg","event":{"type":"turn.completed","usage":{"input_tokens":13255,"cached_input_tokens":0,"output_tokens":71},"timestamp":"2025-12-09T17:32:00.220Z"}}
+
+data: {"type":"job_complete","jobId":"c69f7f40-d1ed-4c76-8739-7fac86b14e8b","threadId":"chit_chat_1765301515709_kn5czg","duration":4513,"timestamp":"2025-12-09T17:32:00.222Z"}
+

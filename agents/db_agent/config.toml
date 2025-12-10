@@ -1,0 +1,31 @@
+model = "gpt-4o-mini"
+model_provider = "azure"
+preferred_auth_method = "apikey"
+
+[model_providers.azure]
+name = "Azure"
+# NOTE: no `/v1` here
+base_url = "https://autogen-testing-ubs.openai.azure.com/openai"
+env_key = "AZURE_OPENAI_API_KEY"
+
+# Use the preview API version that your portal shows
+query_params = { api-version = "2025-03-01-preview" }
+
+# Codex will call the Responses API against Azure
+wire_api = "responses"
+
+# Optional, only used by Responses API models
+model_reasoning_effort = "high"
+
+
+[mcp_servers.postgres-db]
+# If uv is on your PATH, you can just write: command = "uv"
+command = "/opt/homebrew/bin/uv"
+args = [
+  "--project", "/Users/preetam/Develop/mcp_servers/postgres-mcp",
+  "run", "postgres-mcp",
+  "--access-mode=unrestricted",
+]
+
+[mcp_servers.postgres-db.env]
+DATABASE_URI = "postgresql://postgres:postgres_password@localhost:5432/app_db"

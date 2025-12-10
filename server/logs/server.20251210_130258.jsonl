@@ -1,0 +1,7 @@
+{"level":"info","time":"2025-12-10T12:01:49.231Z","pid":64064,"hostname":"localhost","event":"server_startup","config":{"logLevel":"info","logFile":"/Users/preetam/Develop/codex_chat/server/logs/server.jsonl"},"msg":"Logger initialized"}
+{"level":"info","time":"2025-12-10T12:01:49.233Z","pid":64064,"hostname":"localhost","event":"server_init","msg":"Initializing Codex Chat Server"}
+{"level":"info","time":"2025-12-10T12:01:49.233Z","pid":64064,"hostname":"localhost","event":"agent_manager_init","msg":"Initializing AgentManager"}
+{"level":"info","time":"2025-12-10T12:01:49.237Z","pid":64064,"hostname":"localhost","event":"agent_loaded","agentType":"db_agent","msg":"Agent loaded: db_agent"}
+{"level":"info","time":"2025-12-10T12:01:49.238Z","pid":64064,"hostname":"localhost","event":"agent_loaded","agentType":"chit_chat","msg":"Agent loaded: chit_chat"}
+{"level":"info","time":"2025-12-10T12:01:49.240Z","pid":64064,"hostname":"localhost","event":"agent_loaded","agentType":"viz_agent","msg":"Agent loaded: viz_agent"}
+{"level":"info","time":"2025-12-10T12:01:49.241Z","pid":64064,"hostname":"localhost","event":"agent_loaded","agentType":"doc_agent","msg":"Agent loaded: doc_agent"}
