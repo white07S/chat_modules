@@ -114,6 +114,18 @@ export interface UpdatePlotRequest extends Partial<CreatePlotRequest> {
   dashboardId?: string;
 }
 
+export interface SaveKnowledgeRequest {
+  agentType?: string | null;
+  threadId?: string | null;
+  messageId?: string;
+  queries: string[];
+}
+
+export interface SaveKnowledgeResponse {
+  saved: number;
+  duplicates?: number;
+}
+
 class ApiService {
   private axios = axios.create({
     baseURL: API_BASE_URL,
@@ -193,6 +205,11 @@ class ApiService {
 
   async deleteDashboardPlot(dashboardId: string, plotId: string): Promise<void> {
     await this.axios.delete(`/dashboards/${dashboardId}/plots/${plotId}`);
+  }
+
+  async saveKnowledge(payload: SaveKnowledgeRequest): Promise<SaveKnowledgeResponse> {
+    const response = await this.axios.post('/knowledge', payload);
+    return response.data;
   }
 
   // Create SSE connection

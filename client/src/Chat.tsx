@@ -918,6 +918,8 @@ export const Chat: React.FC = () => {
               messages={messages}
               isLoadingHistory={isHistoryLoading}
               onPinChart={handlePinChartRequest}
+              threadId={currentThreadId}
+              defaultAgentType={selectedAgent}
             />
 
             <MessageInput

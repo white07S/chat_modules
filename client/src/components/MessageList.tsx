@@ -1,13 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as echarts from 'echarts';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Message, DbToolCall, ChartSpecData } from '../types/messages';
+import { apiService, SaveKnowledgeResponse } from '../api';
 
 interface MessageListProps {
   messages: Message[];
   isLoadingHistory?: boolean;
   onPinChart?: (message: Message) => void;
+  threadId?: string | null;
+  defaultAgentType?: string;
 }
 
 type TabKey = 'response' | 'db' | 'chart';
@@ -25,6 +30,56 @@ const formatCellValue = (value: unknown): string => {
     return JSON.stringify(value);
   } catch {
     return String(value);
+  }
+};
+
+const formatCsvValue = (value: unknown): string => {
+  const normalized = formatCellValue(value);
+  const escaped = normalized.replace(/"/g, '""');
+  return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
+};
+
+const buildCsvFromRows = (
+  rows: Record<string, unknown>[],
+  columns: string[]
+): string => {
+  if (rows.length === 0) return '';
+  const headers = columns.length > 0 ? columns : Object.keys(rows[0] ?? {});
+  if (headers.length === 0) return '';
+
+  const headerLine = headers.join(',');
+  const dataLines = rows.map(row =>
+    headers
+      .map(column => formatCsvValue(row ? row[column] : undefined))
+      .join(',')
+  );
+
+  return [headerLine, ...dataLines].join('\n');
+};
+
+const copyTextToClipboard = async (text: string): Promise<void> => {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Clipboard API is unavailable.');
+  }
+
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  textArea.style.position = 'fixed';
+  textArea.style.opacity = '0';
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  const successful = document.execCommand('copy');
+  document.body.removeChild(textArea);
+
+  if (!successful) {
+    throw new Error('Unable to copy text to clipboard.');
   }
 };
 
@@ -66,9 +121,22 @@ const StreamingResponse: React.FC<{ message: Message }> = ({ message }) => (
   </div>
 );
 
-const DbResultsTab: React.FC<{ calls: DbToolCall[] }> = ({ calls }) => {
+interface KnowledgeActionResult {
+  saved: number;
+  duplicates?: number;
+}
+
+interface DbResultsTabProps {
+  calls: DbToolCall[];
+  onSaveKnowledge?: () => Promise<KnowledgeActionResult>;
+}
+
+const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) => {
   const [selectedCallId, setSelectedCallId] = useState<string>(calls[0]?.id ?? '');
   const [page, setPage] = useState(1);
+  const [actionFeedback, setActionFeedback] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  const actionFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isSavingKnowledge, setIsSavingKnowledge] = useState(false);
 
   useEffect(() => {
     if (calls.length === 0) {
@@ -83,6 +151,27 @@ const DbResultsTab: React.FC<{ calls: DbToolCall[] }> = ({ calls }) => {
       setPage(1);
     }
   }, [calls, selectedCallId]);
+
+  useEffect(() => {
+    return () => {
+      if (actionFeedbackTimeoutRef.current) {
+        clearTimeout(actionFeedbackTimeoutRef.current);
+        actionFeedbackTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  const showActionFeedback = (message: string, tone: 'success' | 'error' = 'success') => {
+    setActionFeedback({ message, tone });
+    if (actionFeedbackTimeoutRef.current) {
+      clearTimeout(actionFeedbackTimeoutRef.current);
+      actionFeedbackTimeoutRef.current = null;
+    }
+    actionFeedbackTimeoutRef.current = setTimeout(() => {
+      setActionFeedback(null);
+      actionFeedbackTimeoutRef.current = null;
+    }, 3000);
+  };
 
   const selectedCall = calls.find(call => call.id === selectedCallId) ?? calls[0];
   const rows = useMemo(() => selectedCall?.rows ?? [], [selectedCall]);
@@ -104,6 +193,94 @@ const DbResultsTab: React.FC<{ calls: DbToolCall[] }> = ({ calls }) => {
 
   const startIndex = (page - 1) * ROWS_PER_PAGE;
   const pageRows = rows.slice(startIndex, startIndex + ROWS_PER_PAGE);
+  const hasSqlStatements = useMemo(
+    () => calls.some(call => typeof call.sql === 'string' && call.sql.trim().length > 0),
+    [calls]
+  );
+
+  const handleCopyCurrentPage = async () => {
+    if (pageRows.length === 0) {
+      showActionFeedback('No rows to copy on this page.', 'error');
+      return;
+    }
+
+    const csvContent = buildCsvFromRows(pageRows, columns);
+    if (!csvContent) {
+      showActionFeedback('Unable to build CSV for this page.', 'error');
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(csvContent);
+      showActionFeedback(`Copied ${pageRows.length} row${pageRows.length === 1 ? '' : 's'} from page ${page}.`);
+    } catch (error) {
+      console.error('Failed to copy page rows', error);
+      showActionFeedback('Copy failed. Please try again.', 'error');
+    }
+  };
+
+  const handleDownloadAllCsv = () => {
+    if (rows.length === 0) {
+      showActionFeedback('No rows available to download.', 'error');
+      return;
+    }
+
+    const csvContent = buildCsvFromRows(rows, columns);
+    if (!csvContent) {
+      showActionFeedback('Unable to build CSV for download.', 'error');
+      return;
+    }
+
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      showActionFeedback('CSV download is only available in the browser.', 'error');
+      return;
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `db-results-${selectedCall?.id || 'results'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    showActionFeedback(`Downloading ${rows.length} row${rows.length === 1 ? '' : 's'} as CSV.`);
+  };
+
+  const handleSaveKnowledge = async () => {
+    if (!onSaveKnowledge) {
+      return;
+    }
+
+    if (!hasSqlStatements) {
+      showActionFeedback('No SQL statements available to save.', 'error');
+      return;
+    }
+
+    setIsSavingKnowledge(true);
+    try {
+      const result = await onSaveKnowledge();
+      const savedCount = result?.saved ?? 0;
+      const duplicateCount = result?.duplicates ?? 0;
+
+      if (savedCount > 0) {
+        const duplicateNote = duplicateCount > 0
+          ? ` (${duplicateCount} duplicate${duplicateCount === 1 ? '' : 's'} skipped)`
+          : '';
+        showActionFeedback(`Saved ${savedCount} SQL quer${savedCount === 1 ? 'y' : 'ies'}${duplicateNote}.`);
+      } else if (duplicateCount > 0) {
+        showActionFeedback('All SQL queries were already saved.', 'error');
+      } else {
+        showActionFeedback('No SQL queries were saved.', 'error');
+      }
+    } catch (error) {
+      console.error('Failed to save knowledge', error);
+      showActionFeedback('Failed to save knowledge. Please try again.', 'error');
+    } finally {
+      setIsSavingKnowledge(false);
+    }
+  };
 
   if (!selectedCall) {
     return <div className="text-sm text-gray-600">No SQL calls captured.</div>;
@@ -136,9 +313,21 @@ const DbResultsTab: React.FC<{ calls: DbToolCall[] }> = ({ calls }) => {
 
       <div>
         <p className="text-xs font-semibold text-gray-600 mb-1">SQL Query</p>
-        <pre className="rounded-md bg-gray-900 text-green-200 text-xs p-3 overflow-auto">
-          {selectedCall.sql || 'Query unavailable'}
-        </pre>
+        <div className="rounded-md border border-gray-200 overflow-hidden">
+          <SyntaxHighlighter
+            language="sql"
+            style={oneLight}
+            customStyle={{
+              margin: 0,
+              backgroundColor: '#fff',
+              fontSize: '0.75rem',
+              padding: '0.75rem',
+              lineHeight: '1.25rem'
+            }}
+          >
+            {selectedCall.sql || 'Query unavailable'}
+          </SyntaxHighlighter>
+        </div>
       </div>
 
       {selectedCall.parseError && (
@@ -189,29 +378,67 @@ const DbResultsTab: React.FC<{ calls: DbToolCall[] }> = ({ calls }) => {
             </table>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-gray-600">
-            <div>
-              Rows {rows.length === 0 ? 0 : startIndex + 1}-{Math.min(startIndex + ROWS_PER_PAGE, rows.length)} of {rows.length}
+          <div className="space-y-1">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-gray-600">
+              <div>
+                Rows {rows.length === 0 ? 0 : startIndex + 1}-{Math.min(startIndex + ROWS_PER_PAGE, rows.length)} of {rows.length}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                  onClick={handleCopyCurrentPage}
+                  disabled={pageRows.length === 0}
+                  title="Copy just the rows visible on this page"
+                >
+                  Copy Page
+                </button>
+                <button
+                  type="button"
+                  className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 disabled:cursor-not-allowed"
+                  onClick={handleDownloadAllCsv}
+                  disabled={rows.length === 0}
+                  title="Download every row as a CSV file"
+                >
+                  Download CSV
+                </button>
+                <button
+                  type="button"
+                  className="px-2 py-1 rounded border border-green-500 text-green-600 hover:bg-green-50 disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                  onClick={handleSaveKnowledge}
+                  disabled={!onSaveKnowledge || !hasSqlStatements || isSavingKnowledge}
+                  title="Store these SQL statements for future retrieval"
+                >
+                  {isSavingKnowledge ? 'Saving...' : 'Save Knowledge'}
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                  onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                  disabled={page === 1}
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {page} / {totalPages}
+                </span>
+                <button
+                  className="px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                  onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={page === totalPages}
+                >
+                  Next
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                className="px-2 py-1 rounded border border-gray-300 disabled:opacity-50"
-                onClick={() => setPage(prev => Math.max(1, prev - 1))}
-                disabled={page === 1}
+            {actionFeedback && (
+              <div
+                className={`text-xs ${actionFeedback.tone === 'success' ? 'text-green-600' : 'text-red-600'}`}
               >
-                Previous
-              </button>
-              <span>
-                Page {page} / {totalPages}
-              </span>
-              <button
-                className="px-2 py-1 rounded border border-gray-300 disabled:opacity-50"
-                onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={page === totalPages}
-              >
-                Next
-              </button>
-            </div>
+                {actionFeedback.message}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -262,7 +489,7 @@ const ChartTab: React.FC<{ spec?: ChartSpecData | null; onPin?: () => void }> = 
         {onPin && spec?.option && (
           <button
             onClick={onPin}
-            className="text-xs px-3 py-1 rounded-md border border-purple-500 text-purple-600 hover:bg-purple-50"
+            className="text-xs px-3 py-1 rounded-md border border-blue-500 text-blue-600 hover:bg-blue-50"
           >
             Pin to dashboard
           </button>
@@ -290,7 +517,13 @@ const ChartTab: React.FC<{ spec?: ChartSpecData | null; onPin?: () => void }> = 
   );
 };
 
-const AgentResponseTabs: React.FC<{ message: Message; onPinChart?: (message: Message) => void }> = ({ message, onPinChart }) => {
+interface AgentResponseTabsProps {
+  message: Message;
+  onPinChart?: (message: Message) => void;
+  onSaveKnowledge?: (message: Message) => Promise<KnowledgeActionResult>;
+}
+
+const AgentResponseTabs: React.FC<AgentResponseTabsProps> = ({ message, onPinChart, onSaveKnowledge }) => {
   const dbCalls = message.agentResponse?.dbCalls || [];
   const chartSpec = message.agentResponse?.chartSpec;
   const hasChartData = Boolean(chartSpec);
@@ -319,11 +552,15 @@ const AgentResponseTabs: React.FC<{ message: Message; onPinChart?: (message: Mes
     }
   }, [tabs, activeTab]);
 
+  const knowledgeHandler = !message.isStreaming && onSaveKnowledge
+    ? () => onSaveKnowledge(message)
+    : undefined;
+
   const renderContent = () => {
     switch (activeTab) {
       case 'db':
         return dbCalls.length > 0 ? (
-          <DbResultsTab calls={dbCalls} />
+          <DbResultsTab calls={dbCalls} onSaveKnowledge={knowledgeHandler} />
         ) : (
           <div className="text-sm text-gray-600">No SQL calls captured.</div>
         );
@@ -372,13 +609,15 @@ interface ConversationMessageProps {
   isTimelineExpanded: boolean;
   onToggleTimeline: () => void;
   onPinChart?: (message: Message) => void;
+  onSaveKnowledge?: (message: Message) => Promise<KnowledgeActionResult>;
 }
 
 const ConversationMessage: React.FC<ConversationMessageProps> = ({
   message,
   isTimelineExpanded,
   onToggleTimeline,
-  onPinChart
+  onPinChart,
+  onSaveKnowledge
 }) => {
   const timestamp = new Date(message.timestamp).toLocaleTimeString();
   const hasAgentData = Boolean(
@@ -410,7 +649,11 @@ const ConversationMessage: React.FC<ConversationMessageProps> = ({
             <span>{timestamp}</span>
           </div>
           {hasAgentData ? (
-            <AgentResponseTabs message={message} onPinChart={onPinChart} />
+            <AgentResponseTabs
+              message={message}
+              onPinChart={onPinChart}
+              onSaveKnowledge={onSaveKnowledge}
+            />
           ) : (
             <StreamingResponse message={message} />
           )}
@@ -442,9 +685,37 @@ const ConversationMessage: React.FC<ConversationMessageProps> = ({
   );
 };
 
-export const MessageList: React.FC<MessageListProps> = ({ messages, isLoadingHistory = false, onPinChart }) => {
+export const MessageList: React.FC<MessageListProps> = ({
+  messages,
+  isLoadingHistory = false,
+  onPinChart,
+  threadId,
+  defaultAgentType
+}) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [expandedTimelines, setExpandedTimelines] = useState<Set<string>>(new Set());
+
+  const saveKnowledgeForMessage = useCallback(async (message: Message): Promise<KnowledgeActionResult> => {
+    const queries = (message.agentResponse?.dbCalls || [])
+      .map((call) => (typeof call.sql === 'string' ? call.sql.trim() : ''))
+      .filter((sql): sql is string => sql.length > 0);
+
+    if (queries.length === 0) {
+      throw new Error('No SQL statements to save.');
+    }
+
+    const response: SaveKnowledgeResponse = await apiService.saveKnowledge({
+      agentType: message.agentType || defaultAgentType || null,
+      threadId: threadId || null,
+      messageId: message.id,
+      queries
+    });
+
+    return {
+      saved: typeof response.saved === 'number' ? response.saved : queries.length,
+      duplicates: response.duplicates ?? 0
+    };
+  }, [threadId, defaultAgentType]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -498,6 +769,7 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, isLoadingHis
               isTimelineExpanded={isExpanded}
               onToggleTimeline={() => toggleTimeline(message.id)}
               onPinChart={onPinChart}
+              onSaveKnowledge={saveKnowledgeForMessage}
             />
           );
         }

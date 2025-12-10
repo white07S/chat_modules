@@ -11,6 +11,7 @@ import { SSEManager } from './lib/SSEManager.js';
 import { initializeDatabase } from './lib/db.js';
 import { ThreadStore } from './lib/ThreadStore.js';
 import { DashboardStore, MAX_PLOTS_PER_DASHBOARD } from './lib/DashboardStore.js';
+import { saveKnowledgeEntries } from './lib/KnowledgeStore.js';
 
 // Load environment variables
 config({ path: '.env.dev' });
@@ -159,6 +160,41 @@ class CodexChatServer {
           error: error instanceof Error ? error.message : String(error)
         }, 'Failed to fetch session events');
         res.status(500).json({ error: 'Failed to fetch session events' });
+      }
+    });
+
+    this.app.post('/knowledge', async (req, res) => {
+      try {
+        const { agentType, threadId, messageId, queries } = req.body || {};
+
+        if (!Array.isArray(queries)) {
+          res.status(400).json({ error: 'queries array is required' });
+          return;
+        }
+
+        const normalizedQueries = queries
+          .map((sql: unknown) => (typeof sql === 'string' ? sql.trim() : ''))
+          .filter((sql: string) => sql.length > 0);
+
+        if (normalizedQueries.length === 0) {
+          res.status(400).json({ error: 'At least one SQL query is required' });
+          return;
+        }
+
+        const { saved, duplicates } = await saveKnowledgeEntries(normalizedQueries.map((sql: string) => ({
+          agentType: typeof agentType === 'string' ? agentType : null,
+          threadId: typeof threadId === 'string' ? threadId : null,
+          messageId: typeof messageId === 'string' ? messageId : null,
+          sql
+        })));
+
+        res.status(201).json({ saved, duplicates });
+      } catch (error) {
+        logger.error({
+          event: 'knowledge_save_failed',
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to save knowledge entries');
+        res.status(500).json({ error: 'Failed to save knowledge entries' });
       }
     });
 

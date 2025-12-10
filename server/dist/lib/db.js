@@ -1,6 +1,7 @@
 import knex from 'knex';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { logger } from './logger.js';
 const resolveDatabasePath = () => {
     const configuredPath = process.env.SQLITE_DB_PATH;
@@ -82,6 +83,39 @@ export const initializeDatabase = async () => {
             table.index(['dashboard_id'], 'idx_dashboard_plots_dashboard_id');
         });
         logger.info({ event: 'db_schema', table: 'dashboard_plots' }, 'Created dashboard_plots table');
+    }
+    const hasAgentKnowledge = await db.schema.hasTable('agent_knowledge');
+    if (!hasAgentKnowledge) {
+        await db.schema.createTable('agent_knowledge', (table) => {
+            table.increments('id').primary();
+            table.string('agent_type');
+            table.string('thread_id');
+            table.string('message_id');
+            table.text('sql_text').notNullable();
+            table.string('sql_hash', 64).notNullable().unique('idx_agent_knowledge_sql_hash');
+            table.timestamp('created_at').defaultTo(db.fn.now());
+            table.index(['thread_id'], 'idx_agent_knowledge_thread_id');
+            table.index(['agent_type'], 'idx_agent_knowledge_agent_type');
+        });
+        logger.info({ event: 'db_schema', table: 'agent_knowledge' }, 'Created agent_knowledge table');
+    }
+    else {
+        const hasSqlHashColumn = await db.schema.hasColumn('agent_knowledge', 'sql_hash');
+        if (!hasSqlHashColumn) {
+            await db.schema.alterTable('agent_knowledge', (table) => {
+                table.string('sql_hash', 64);
+            });
+            const existingRows = await db('agent_knowledge')
+                .select('id', 'sql_text')
+                .whereNull('sql_hash');
+            for (const row of existingRows) {
+                const hash = crypto.createHash('sha256').update(row.sql_text || '').digest('hex');
+                await db('agent_knowledge')
+                    .where('id', row.id)
+                    .update({ sql_hash: hash });
+            }
+            logger.info({ event: 'db_schema', table: 'agent_knowledge' }, 'Added sql_hash column to agent_knowledge table');
+        }
     }
 };
 //# sourceMappingURL=db.js.map

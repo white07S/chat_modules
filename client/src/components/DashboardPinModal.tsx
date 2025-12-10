@@ -122,7 +122,7 @@ export const DashboardPinModal: React.FC<DashboardPinModalProps> = ({
               value={newDashboardName}
               onChange={(event) => setNewDashboardName(event.target.value)}
               placeholder="Dashboard name"
-              className="w-full border border-purple-300 rounded-md px-3 py-2 text-sm"
+              className="w-full border border-blue-300 rounded-md px-3 py-2 text-sm"
             />
           )}
         </div>
@@ -141,7 +141,7 @@ export const DashboardPinModal: React.FC<DashboardPinModalProps> = ({
             type="submit"
             disabled={!canSubmit}
             className={`px-4 py-2 text-sm rounded-md text-white ${
-              canSubmit ? 'bg-purple-600 hover:bg-purple-700' : 'bg-purple-300 cursor-not-allowed'
+              canSubmit ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-300 cursor-not-allowed'
             }`}
           >
             Pin chart
