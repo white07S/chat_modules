@@ -16,73 +16,67 @@ const THREAD_OPTS = {
   skipGitRepoCheck: true,
 };
 
-// --- 1) Streaming example: raw JSONL-style events ---------------------------
-
 async function streamingJsonlExample() {
   const thread = codex.startThread(THREAD_OPTS);
 
-  // runStreamed gives us an async iterator of *structured* events
   const { events } = await thread.runStreamed(
-    "can you explore the schema and explain what these business interpreations are?"
+    "can show me top 5 rows in employees table and also tell me how many columns are there in that table?"
   );
 
   console.log("=== Streaming events (JSONL style) ===");
 
-  // If you want *pure* JSONL (no header), remove the line above.
+  // Track all execute_sql MCP tool calls
+  const executeSqlCalls = [];
+  // Track the last agent message
+  let agentMessage = null;
+
   for await (const event of events) {
-    // One JSON object per line, like `codex exec --json`
+    // Raw JSONL log (same shape as `codex exec --json`)
     console.log(JSON.stringify(event));
+
+    if (event.type === "item.completed") {
+      const item = event.item;
+
+      // Capture only execute_sql MCP tool calls
+      if (
+        item.type === "mcp_tool_call" &&
+        item.tool === "execute_sql" &&
+        item.status === "completed"
+      ) {
+        executeSqlCalls.push({
+          id: item.id,
+          sql: item.arguments.sql,
+          result: item.result?.content?.[0]?.text || null,
+        });
+      }
+
+      // Capture agent message
+      if (item.type === "agent_message") {
+        agentMessage = item.text;
+      }
+    }
   }
 
   console.log("=== End of streaming events ===\n");
+
+  const structuredFinal = {
+    execute_sql_calls: executeSqlCalls,
+    total_calls: executeSqlCalls.length,
+    agent_message: agentMessage,
+  };
+
+  console.log("=== Aggregated structured result ===");
+  console.log(JSON.stringify(structuredFinal, null, 2));
+
+  return structuredFinal;
 }
-
-// --- 2) Structured parsing example (buffered) -------------------------------
-
-// async function structuredParsingExample() {
-//   const thread = codex.startThread(THREAD_OPTS);
-
-//   // Plain JS JSON Schema (no `as const`)
-//   const schema = {
-//     type: "object",
-//     properties: {
-//       user_name: { type: "string" },
-//       short_intro: { type: "string" },
-//       sentiment: {
-//         type: "string",
-//         enum: ["positive", "neutral", "negative"],
-//       },
-//     },
-//     required: ["user_name", "short_intro", "sentiment"],
-//     additionalProperties: false,
-//   };
-
-//   const turn = await thread.run(
-//     "The user is Alex, a data analyst who likes Python and SQL. Summarize them.",
-//     { outputSchema: schema }
-//   );
-
-//   // With outputSchema, finalResponse is guaranteed to be valid JSON
-//   const parsed = JSON.parse(turn.finalResponse);
-
-//   console.log("=== Structured parsing (finalResponse) ===");
-//   console.log(turn.finalResponse);
-
-//   console.log("\n=== Parsed JSON ===");
-//   console.dir(parsed, { depth: null });
-
-//   console.log(`\nHello ${parsed.user_name}, sentiment = ${parsed.sentiment}\n`);
-// }
 
 // ---------------------------------------------------------------------------
 
 (async () => {
   try {
-    // 1) Show full streaming event feed in JSONL style
-    await streamingJsonlExample();
-
-    // 2) Show a structured-output turn
-    // await structuredParsingExample();
+    const result = await streamingJsonlExample();
+    // Use `result` here or export streamingJsonlExample() from this module.
   } catch (err) {
     console.error("Error:", err);
     process.exitCode = 1;

@@ -23,55 +23,32 @@ async function streamingJsonlExample() {
 
   // runStreamed gives us an async iterator of *structured* events
   const { events } = await thread.runStreamed(
-    "Hello, can you tell me a joke?"
+    "hello , tell me a joke"
   );
 
   console.log("=== Streaming events (JSONL style) ===");
 
-  // If you want *pure* JSONL (no header), remove the line above.
+  let final_response = null; // will hold the last completed agent_message item
+
   for await (const event of events) {
     // One JSON object per line, like `codex exec --json`
     console.log(JSON.stringify(event));
+
+    // Track the last completed agent_message
+    if (
+      event.type === "item.completed" &&
+      event.item &&
+      event.item.type === "agent_message"
+    ) {
+      // store the whole item as a dict-like object
+      final_response = event.item;
+    }
   }
 
-  console.log("=== End of streaming events ===\n");
-}
+  // console.log("=== End of streaming events ===\n");
+  // console.log("Final agent_message item:", final_response);
 
-// --- 2) Structured parsing example (buffered) -------------------------------
-
-async function structuredParsingExample() {
-  const thread = codex.startThread(THREAD_OPTS);
-
-  // Plain JS JSON Schema (no `as const`)
-  const schema = {
-    type: "object",
-    properties: {
-      user_name: { type: "string" },
-      short_intro: { type: "string" },
-      sentiment: {
-        type: "string",
-        enum: ["positive", "neutral", "negative"],
-      },
-    },
-    required: ["user_name", "short_intro", "sentiment"],
-    additionalProperties: false,
-  };
-
-  const turn = await thread.run(
-    "The user is Alex, a data analyst who likes Python and SQL. Summarize them.",
-    { outputSchema: schema }
-  );
-
-  // With outputSchema, finalResponse is guaranteed to be valid JSON
-  const parsed = JSON.parse(turn.finalResponse);
-
-  console.log("=== Structured parsing (finalResponse) ===");
-  console.log(turn.finalResponse);
-
-  console.log("\n=== Parsed JSON ===");
-  console.dir(parsed, { depth: null });
-
-  console.log(`\nHello ${parsed.user_name}, sentiment = ${parsed.sentiment}\n`);
+  return final_response;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,10 +56,9 @@ async function structuredParsingExample() {
 (async () => {
   try {
     // 1) Show full streaming event feed in JSONL style
-    await streamingJsonlExample();
-
-    // 2) Show a structured-output turn
-    await structuredParsingExample();
+    const final_response = await streamingJsonlExample();
+    // You now have the last agent_message here as well
+    console.log("Returned final_response:", final_response);
   } catch (err) {
     console.error("Error:", err);
     process.exitCode = 1;

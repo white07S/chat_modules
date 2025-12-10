@@ -1,13 +1,13 @@
 import { Codex } from "@openai/codex-sdk";
 
 const codex = new Codex({
-    env:{
-        AZURE_OPENAI_API_KEY: "",
-        CODEX_HOME: "/Users/preetam/Develop/codex_chat/agents/viz_agent",
-        PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-        HOME: "/Users/preetam",
-        USER: "preetam"
-    }
+  env: {
+    AZURE_OPENAI_API_KEY: "",
+    CODEX_HOME: "/Users/preetam/Develop/codex_chat/agents/viz_agent",
+    PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    HOME: "/Users/preetam",
+    USER: "preetam",
+  },
 });
 
 const THREAD_OPTS = {
@@ -16,73 +16,67 @@ const THREAD_OPTS = {
   skipGitRepoCheck: true,
 };
 
-// --- 1) Streaming example: raw JSONL-style events ---------------------------
-
 async function streamingJsonlExample() {
   const thread = codex.startThread(THREAD_OPTS);
 
-  // runStreamed gives us an async iterator of *structured* events
   const { events } = await thread.runStreamed(
     "can you use the mcp , to show me a scatter plot of sales vs profit with some random data"
   );
 
   console.log("=== Streaming events (JSONL style) ===");
 
-  // If you want *pure* JSONL (no header), remove the line above.
+  // Keep only the *last* generate_chart MCP tool call's text content
+  let lastGenerateChartSpec = null;
+  // Keep the last agent message
+  let agentMessage = null;
+
   for await (const event of events) {
-    // One JSON object per line, like `codex exec --json`
+    // Raw JSONL-style logging
     console.log(JSON.stringify(event));
+
+    if (event.type === "item.completed") {
+      const item = event.item;
+
+      // Capture generate_chart tool result
+      if (
+        item.type === "mcp_tool_call" &&
+        item.tool === "generate_chart" &&
+        item.status === "completed"
+      ) {
+        const contentArray = item.result && item.result.content;
+        if (Array.isArray(contentArray)) {
+          const textPart = contentArray.find((part) => part.type === "text");
+          if (textPart && textPart.text) {
+            lastGenerateChartSpec = textPart.text;
+          }
+        }
+      }
+
+      // Capture agent message (last one wins)
+      if (item.type === "agent_message") {
+        agentMessage = item.text;
+      }
+    }
   }
 
   console.log("=== End of streaming events ===\n");
-}
 
-// --- 2) Structured parsing example (buffered) -------------------------------
-
-async function structuredParsingExample() {
-  const thread = codex.startThread(THREAD_OPTS);
-
-  // Plain JS JSON Schema (no `as const`)
-  const schema = {
-    type: "object",
-    properties: {
-      user_name: { type: "string" },
-      short_intro: { type: "string" },
-      sentiment: {
-        type: "string",
-        enum: ["positive", "neutral", "negative"],
-      },
-    },
-    required: ["user_name", "short_intro", "sentiment"],
-    additionalProperties: false,
+  const structuredFinal = {
+    echart_spec: lastGenerateChartSpec,
+    agent_message: agentMessage,
   };
 
-  const turn = await thread.run(
-    "The user is Alex, a data analyst who likes Python and SQL. Summarize them.",
-    { outputSchema: schema }
-  );
+  console.log("=== Aggregated structured result ===");
+  console.log(JSON.stringify(structuredFinal, null, 2));
 
-  // With outputSchema, finalResponse is guaranteed to be valid JSON
-  const parsed = JSON.parse(turn.finalResponse);
-
-  console.log("=== Structured parsing (finalResponse) ===");
-  console.log(turn.finalResponse);
-
-  console.log("\n=== Parsed JSON ===");
-  console.dir(parsed, { depth: null });
-
-  console.log(`\nHello ${parsed.user_name}, sentiment = ${parsed.sentiment}\n`);
+  return structuredFinal;
 }
-
-// ---------------------------------------------------------------------------
 
 (async () => {
   try {
-    // 1) Show full streaming event feed in JSONL style
-    await streamingJsonlExample();
-
-    // 2) Show a structured-output turn
-    await structuredParsingExample();
+    const result = await streamingJsonlExample();
+    // result.echart_spec -> string containing the ECharts JSON spec
+    // result.agent_message -> last agent message text
   } catch (err) {
     console.error("Error:", err);
     process.exitCode = 1;
