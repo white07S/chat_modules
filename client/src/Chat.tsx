@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { apiService, Agent, SSEEvent } from './api';
 import { AgentSelector } from './components/AgentSelector';
-import { MessageList, Message } from './components/MessageList';
+import { MessageList } from './components/MessageList';
 import { MessageInput } from './components/MessageInput';
 import { ThreadControls } from './components/ThreadControls';
+import { Message } from './types/messages';
+import { collectTextFromToolContent, parseChartSpec, parseSqlResult, safeJsonParse } from './utils/parsers';
 
 export const Chat: React.FC = () => {
   // Event type labels mapping (1-2 words each)
@@ -85,11 +87,13 @@ export const Chat: React.FC = () => {
         eventSourceRef.current.close();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Connect SSE when agent changes
   useEffect(() => {
     connectSSE();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAgent]);
 
   const loadAgents = async () => {
@@ -167,7 +171,9 @@ export const Chat: React.FC = () => {
     }
   };
 
-  const updateConversation = (updates: Partial<Message>, conversationId?: string | null) => {
+  type ConversationUpdate = Partial<Message> | ((message: Message) => Message);
+
+  const updateConversation = (updates: ConversationUpdate, conversationId?: string | null) => {
     const targetConversationId = conversationId ?? currentConversationRef.current;
     if (!targetConversationId) return;
 
@@ -176,14 +182,28 @@ export const Chat: React.FC = () => {
       if (lastIndex === -1) return prev;
 
       const newMessages = [...prev];
-      newMessages[lastIndex] = {
-        ...newMessages[lastIndex],
-        ...updates,
-        timeline: updates.timeline ? [
-          ...(newMessages[lastIndex].timeline || []),
-          ...updates.timeline
-        ] : newMessages[lastIndex].timeline
-      };
+      const currentMessage = newMessages[lastIndex];
+
+      const updatedMessage = typeof updates === 'function'
+        ? updates(currentMessage)
+        : {
+            ...currentMessage,
+            ...updates,
+            agentResponse: updates.agentResponse
+              ? {
+                  ...currentMessage.agentResponse,
+                  ...updates.agentResponse
+                }
+              : currentMessage.agentResponse,
+            timeline: updates.timeline
+              ? [
+                  ...(currentMessage.timeline || []),
+                  ...updates.timeline
+                ]
+              : currentMessage.timeline
+          };
+
+      newMessages[lastIndex] = updatedMessage;
       return newMessages;
     });
   };
@@ -199,6 +219,94 @@ export const Chat: React.FC = () => {
         timestamp: new Date().toISOString()
       }]
     }, targetConversationId);
+  };
+
+  const extractSqlQuery = (args: unknown): string => {
+    if (!args) {
+      return '';
+    }
+
+    if (typeof args === 'string') {
+      const parsed = safeJsonParse<{ sql?: string; query?: string }>(args);
+      if (parsed) {
+        if (typeof parsed.sql === 'string') return parsed.sql;
+        if (typeof parsed.query === 'string') return parsed.query;
+      }
+      return args;
+    }
+
+    if (typeof args === 'object') {
+      const record = args as Record<string, unknown>;
+      const sqlCandidate = record.sql ?? record.query;
+      if (typeof sqlCandidate === 'string') {
+        return sqlCandidate;
+      }
+    }
+
+    return '';
+  };
+
+  const handleSqlToolResult = (item: any) => {
+    const conversationId = currentConversationRef.current;
+    if (!conversationId) {
+      return;
+    }
+
+    const resultText = collectTextFromToolContent(item?.result?.content);
+    const parsedResult = parseSqlResult(resultText);
+    const sqlQuery = extractSqlQuery(item?.arguments);
+    const callId = item?.id || `sql_${Date.now()}`;
+
+    updateConversation((current) => ({
+      ...current,
+      agentResponse: {
+        ...current.agentResponse,
+        dbCalls: [
+          ...(current.agentResponse?.dbCalls || []),
+          {
+            id: callId,
+            sql: sqlQuery,
+            rawResult: resultText,
+            rows: parsedResult.rows,
+            parseError: parsedResult.error
+          }
+        ]
+      }
+    }), conversationId);
+  };
+
+  const handleChartToolResult = (item: any) => {
+    const conversationId = currentConversationRef.current;
+    if (!conversationId) {
+      return;
+    }
+
+    const specText = collectTextFromToolContent(item?.result?.content);
+    const parsedSpec = parseChartSpec(specText);
+
+    updateConversation((current) => ({
+      ...current,
+      agentResponse: {
+        ...current.agentResponse,
+        chartSpec: {
+          rawSpec: specText,
+          option: parsedSpec.option,
+          parseError: parsedSpec.error
+        }
+      }
+    }), conversationId);
+  };
+
+  const handleToolCallCompletion = (item: any) => {
+    if (!item || item.status !== 'completed') {
+      return;
+    }
+
+    if (item.tool === 'execute_sql') {
+      handleSqlToolResult(item);
+    } else if (item.tool === 'generate_chart') {
+      handleChartToolResult(item);
+    }
   };
 
   const handleAgentEvent = (event: SSEEvent) => {
@@ -288,6 +396,9 @@ export const Chat: React.FC = () => {
           addTimelineEvent('Command', `⚡ ${agentEvent.item.command}`);
         } else if (agentEvent.item?.type === 'function_call') {
           addTimelineEvent('Tool Start', `🔧 ${agentEvent.item.name}`);
+        } else if (agentEvent.item?.type === 'mcp_tool_call') {
+          const toolLabel = agentEvent.item?.tool || 'MCP Tool';
+          addTimelineEvent('Tool Start', `🔧 ${toolLabel}`);
         }
         break;
 
@@ -316,12 +427,19 @@ export const Chat: React.FC = () => {
           // Final complete message
           updateConversation({
             assistantMessage: agentEvent.item.text,
+            agentResponse: {
+              finalMessage: agentEvent.item.text
+            },
             isStreaming: false
           }, currentConversationRef.current);
         } else if (agentEvent.item?.type === 'command_execution') {
           addTimelineEvent('Command Done', `✅ ${agentEvent.item.command}`);
         } else if (agentEvent.item?.type === 'function_call') {
           addTimelineEvent('Tool Done', `✅ ${agentEvent.item.name}`);
+        } else if (agentEvent.item?.type === 'mcp_tool_call') {
+          const toolLabel = agentEvent.item?.tool || 'MCP Tool';
+          addTimelineEvent('Tool Done', `✅ ${toolLabel}`);
+          handleToolCallCompletion(agentEvent.item);
         }
         break;
 
