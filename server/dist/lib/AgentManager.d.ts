@@ -32,6 +32,7 @@ export declare class AgentManager {
     };
     getThread(threadId: string): ActiveThread | undefined;
     updateThreadActivity(threadId: string): void;
+    updateThreadId(oldThreadId: string | null, newThreadId: string): void;
     resumeThread(agentType: string, threadId: string): Promise<Thread>;
     getAvailableAgents(): {
         type: string;

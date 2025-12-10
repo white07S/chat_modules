@@ -1,4 +1,4 @@
-import pino from 'pino';
+import { pino as createLogger, multistream, transport, stdTimeFunctions } from 'pino';
 import fs from 'fs';
 import path from 'path';
 // Create logs directory if it doesn't exist
@@ -12,9 +12,9 @@ const logLevel = process.env.LOG_LEVEL || 'info';
 // Create a write stream for JSONL file
 const logStream = fs.createWriteStream(path.resolve(logFile), { flags: 'a' });
 // Create logger with both console and file output
-export const logger = pino({
+export const logger = createLogger({
     level: logLevel,
-    timestamp: pino.stdTimeFunctions.isoTime,
+    timestamp: stdTimeFunctions.isoTime,
     formatters: {
         level: (label) => {
             return { level: label };
@@ -24,13 +24,13 @@ export const logger = pino({
         pid: process.pid,
         hostname: process.env.HOST || 'localhost'
     }
-}, pino.multistream([
+}, multistream([
     {
         stream: logStream,
         level: logLevel
     },
     {
-        stream: pino.transport({
+        stream: transport({
             target: 'pino-pretty',
             options: {
                 colorize: true,

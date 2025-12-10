@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { apiService, Agent, SSEEvent } from './api';
-import { AgentSelector } from './components/AgentSelector';
+import { apiService, Agent, SSEEvent, PersistedThread } from './api';
 import { MessageList } from './components/MessageList';
 import { MessageInput } from './components/MessageInput';
-import { ThreadControls } from './components/ThreadControls';
 import { Message } from './types/messages';
 import { collectTextFromToolContent, parseChartSpec, parseSqlResult, safeJsonParse } from './utils/parsers';
+import { ThreadSidebar } from './components/ThreadSidebar';
 
 export const Chat: React.FC = () => {
   // Event type labels mapping (1-2 words each)
@@ -65,10 +64,15 @@ export const Chat: React.FC = () => {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [clientId] = useState(() => uuidv4());
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
+  const [persistedThreads, setPersistedThreads] = useState<PersistedThread[]>([]);
+  const [threadFilterAgent, setThreadFilterAgent] = useState<string>('all');
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [newThreadAgent, setNewThreadAgent] = useState<string>('chit_chat');
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const isConnectedRef = useRef(false);
   const currentConversationRef = useRef<string | null>(null);
+  const threadFilterRef = useRef<string>('all');
 
   const setActiveConversationId = (conversationId: string | null) => {
     currentConversationRef.current = conversationId;
@@ -78,6 +82,23 @@ export const Chat: React.FC = () => {
   useEffect(() => {
     currentConversationRef.current = currentConversationId;
   }, [currentConversationId]);
+
+  useEffect(() => {
+    setNewThreadAgent(selectedAgent);
+  }, [selectedAgent]);
+
+  const addMessage = useCallback((message: Message) => {
+    setMessages(prev => [...prev, message]);
+  }, []);
+
+  const addSystemMessage = useCallback((content: string, type: 'system' | 'error' = 'system') => {
+    addMessage({
+      id: uuidv4(),
+      type: 'system',
+      content,
+      timestamp: new Date().toISOString(),
+    });
+  }, [addMessage]);
 
   // Load agents on mount
   useEffect(() => {
@@ -108,6 +129,22 @@ export const Chat: React.FC = () => {
       addSystemMessage('Failed to load agents. Check server connection.');
     }
   };
+
+  const loadPersistedThreads = useCallback(async (agentFilter?: string) => {
+    try {
+      const threads = await apiService.getPersistedThreads(agentFilter);
+      setPersistedThreads(threads);
+    } catch (error) {
+      console.error('Failed to load sessions:', error);
+      addSystemMessage('Failed to load saved threads.');
+    }
+  }, [addSystemMessage]);
+
+  useEffect(() => {
+    threadFilterRef.current = threadFilterAgent;
+    const filterValue = threadFilterAgent === 'all' ? undefined : threadFilterAgent;
+    loadPersistedThreads(filterValue);
+  }, [threadFilterAgent, loadPersistedThreads]);
 
   const connectSSE = () => {
     // Close existing connection
@@ -153,6 +190,9 @@ export const Chat: React.FC = () => {
           addTimelineEvent('Job Done', `${event.duration}ms`, currentConversationRef.current);
         }
         setActiveConversationId(null);
+        if (!isHistoryLoading) {
+          refreshPersistedThreads();
+        }
         break;
 
       case 'error':
@@ -349,9 +389,20 @@ export const Chat: React.FC = () => {
       case 'response_item':
         if (agentEvent.payload?.type === 'message') {
           if (agentEvent.payload.role === 'user') {
-            // User message echo - don't add to timeline
+            const content = agentEvent.payload.content?.[0];
+            if (content?.text) {
+              updateConversation((current) => {
+                if (current.userMessage && current.userMessage.length > 0) {
+                  return current;
+                }
+                return {
+                  ...current,
+                  userMessage: content.text,
+                  agentType: current.agentType || selectedAgent
+                };
+              }, currentConversationRef.current);
+            }
           } else if (agentEvent.payload.role === 'assistant') {
-            // Assistant response - might be partial
             const content = agentEvent.payload.content?.[0];
             if (content?.text) {
               updateConversation({
@@ -467,20 +518,6 @@ export const Chat: React.FC = () => {
     }
   };
 
-  const addMessage = (message: Message) => {
-    setMessages(prev => [...prev, message]);
-  };
-
-  const addSystemMessage = (content: string, type: 'system' | 'error' = 'system') => {
-    addMessage({
-      id: uuidv4(),
-      type: type === 'error' ? 'system' : 'system',
-      content,
-      timestamp: new Date().toISOString(),
-    });
-  };
-
-
   const sendMessage = async (message: string) => {
     if (!isConnectedRef.current) {
       addSystemMessage('Not connected. Please wait...');
@@ -525,11 +562,15 @@ export const Chat: React.FC = () => {
     }
   };
 
-  const handleNewThread = () => {
+  const handleNewThread = (agentType?: string) => {
+    const targetAgent = agentType || selectedAgent;
+    if (targetAgent !== selectedAgent) {
+      setSelectedAgent(targetAgent);
+    }
     setCurrentThreadId(null);
     setActiveConversationId(null);
     setMessages([]);
-    addSystemMessage('Started new thread');
+    addSystemMessage(`Started new thread (${targetAgent})`);
   };
 
   const handleStopJob = async () => {
@@ -545,50 +586,95 @@ export const Chat: React.FC = () => {
     }
   };
 
-  const handleResumeThread = async (threadId: string) => {
+  const handleThreadFilterChange = (agentType: string) => {
+    setThreadFilterAgent(agentType);
+  };
+
+  const refreshPersistedThreads = useCallback(() => {
+    const filterValue = threadFilterRef.current === 'all' ? undefined : threadFilterRef.current;
+    loadPersistedThreads(filterValue);
+  }, [loadPersistedThreads]);
+
+  const handleThreadSelect = async (thread: PersistedThread) => {
+    if (isProcessing) {
+      addSystemMessage('Finish or stop the current job before switching threads.', 'error');
+      return;
+    }
+
+    setIsHistoryLoading(true);
     try {
-      await apiService.resumeThread(selectedAgent, threadId);
-      setCurrentThreadId(threadId);
+      await apiService.resumeThread(thread.agentType, thread.threadId);
+      if (selectedAgent !== thread.agentType) {
+        setSelectedAgent(thread.agentType);
+      }
+
+      setCurrentThreadId(thread.threadId);
+      setActiveConversationId(null);
+      currentConversationRef.current = null;
       setMessages([]);
-      addSystemMessage(`Resumed thread: ${threadId}`);
+
+      const history = await apiService.getThreadHistory(thread.threadId);
+      for (const event of history.events) {
+        handleSSEMessage(event);
+      }
+
+      setActiveConversationId(null);
+      addSystemMessage(`Loaded thread ${thread.threadId}`);
     } catch (error) {
-      addSystemMessage('Failed to resume thread', 'error');
-      console.error('Resume thread error:', error);
+      console.error('Failed to load thread history:', error);
+      addSystemMessage('Failed to load thread history.', 'error');
+    } finally {
+      setIsHistoryLoading(false);
     }
   };
 
-  const handleAgentChange = (agentType: string) => {
-    setSelectedAgent(agentType);
-    setCurrentThreadId(null);
-    setActiveConversationId(null);
-    setMessages([]);
-    addSystemMessage(`Switched to ${agentType} agent`);
-  };
-
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      <div className="bg-white shadow-sm">
-        <AgentSelector
-          agents={agents}
-          selectedAgent={selectedAgent}
-          onAgentChange={handleAgentChange}
-        />
-        <ThreadControls
-          currentThreadId={currentThreadId}
-          currentJobId={currentJobId}
+    <div className="flex h-screen bg-gray-50">
+      <ThreadSidebar
+        threads={persistedThreads}
+        agents={agents}
+        filterAgent={threadFilterAgent}
+        onFilterChange={handleThreadFilterChange}
+        selectedThreadId={currentThreadId}
+        onSelectThread={handleThreadSelect}
+        onNewThread={() => handleNewThread(newThreadAgent)}
+        onRefresh={refreshPersistedThreads}
+        isLoading={isHistoryLoading}
+        newThreadAgent={newThreadAgent}
+        onNewThreadAgentChange={setNewThreadAgent}
+        disableNewThread={isProcessing || isHistoryLoading}
+      />
+      <div className="flex flex-col flex-1">
+        <div className="bg-white shadow-sm border-b border-gray-200">
+          <div className="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-xs uppercase text-gray-500">Thread</div>
+              <div className="text-sm font-mono text-gray-800">
+                {currentThreadId || 'New thread'}
+              </div>
+            </div>
+            <div className="text-sm text-gray-600">
+              Agent: <span className="font-semibold text-gray-900">{selectedAgent}</span>
+            </div>
+            {isProcessing && (
+              <button
+                onClick={handleStopJob}
+                className="px-4 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
+              >
+                Stop Job
+              </button>
+            )}
+          </div>
+        </div>
+
+        <MessageList messages={messages} isLoadingHistory={isHistoryLoading} />
+
+        <MessageInput
+          onSendMessage={sendMessage}
           isProcessing={isProcessing}
-          onNewThread={handleNewThread}
-          onStopJob={handleStopJob}
-          onResumeThread={handleResumeThread}
+          disabled={isHistoryLoading}
         />
       </div>
-
-      <MessageList messages={messages} />
-
-      <MessageInput
-        onSendMessage={sendMessage}
-        isProcessing={isProcessing}
-      />
     </div>
   );
 };

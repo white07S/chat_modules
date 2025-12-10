@@ -42,6 +42,20 @@ export interface SSEEvent {
   clientId?: string;
 }
 
+export interface PersistedThread {
+  threadId: string;
+  agentType: string;
+  title?: string;
+  lastUserMessage?: string | null;
+  lastAgentMessage?: string | null;
+  updatedAt: string;
+}
+
+export interface ThreadHistoryResponse {
+  thread: PersistedThread;
+  events: SSEEvent[];
+}
+
 class ApiService {
   private axios = axios.create({
     baseURL: API_BASE_URL,
@@ -54,6 +68,18 @@ class ApiService {
   async getAgents(): Promise<Agent[]> {
     const response = await this.axios.get('/agents');
     return response.data.agents;
+  }
+
+  async getPersistedThreads(agentType?: string): Promise<PersistedThread[]> {
+    const response = await this.axios.get('/sessions', {
+      params: agentType ? { agentType } : undefined
+    });
+    return response.data.threads;
+  }
+
+  async getThreadHistory(threadId: string): Promise<ThreadHistoryResponse> {
+    const response = await this.axios.get(`/sessions/${threadId}/events`);
+    return response.data;
   }
 
   // Get active threads

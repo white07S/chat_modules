@@ -125,8 +125,7 @@ export class AgentManager {
     const agent = this.getAgent(agentType);
     const thread = agent.codex.startThread(agent.config.threadOpts);
     
-    // Get thread ID (assuming it's accessible - we might need to extract from events)
-    const threadId = `${agentType}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const threadId = `temp_${agentType}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     
     this.threads.set(threadId, {
       thread,
@@ -153,6 +152,29 @@ export class AgentManager {
     if (thread) {
       thread.lastActivity = new Date();
     }
+  }
+
+  updateThreadId(oldThreadId: string | null, newThreadId: string) {
+    if (!oldThreadId || oldThreadId === newThreadId) {
+      return;
+    }
+
+    const threadInfo = this.threads.get(oldThreadId);
+    if (!threadInfo) {
+      return;
+    }
+
+    this.threads.delete(oldThreadId);
+    this.threads.set(newThreadId, {
+      ...threadInfo,
+      lastActivity: new Date()
+    });
+
+    logger.info({
+      event: 'thread_id_updated',
+      oldThreadId,
+      newThreadId
+    }, 'Updated thread id to actual Codex id');
   }
 
   async resumeThread(agentType: string, threadId: string): Promise<Thread> {

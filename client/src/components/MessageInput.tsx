@@ -3,16 +3,20 @@ import React, { useState, KeyboardEvent } from 'react';
 interface MessageInputProps {
   onSendMessage: (message: string) => void;
   isProcessing: boolean;
+  disabled?: boolean;
 }
 
 export const MessageInput: React.FC<MessageInputProps> = ({
   onSendMessage,
   isProcessing,
+  disabled = false,
 }) => {
   const [message, setMessage] = useState('');
 
+  const isInputDisabled = isProcessing || disabled;
+
   const handleSend = () => {
-    if (message.trim() && !isProcessing) {
+    if (message.trim() && !isInputDisabled) {
       onSendMessage(message.trim());
       setMessage('');
     }
@@ -32,16 +36,16 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         onChange={(e) => setMessage(e.target.value)}
         onKeyPress={handleKeyPress}
         placeholder="Type your message... (Press Enter to send, Shift+Enter for new line)"
-        disabled={isProcessing}
+        disabled={isInputDisabled}
         className="flex-1 px-4 py-2 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
         rows={3}
       />
       <button
         onClick={handleSend}
-        disabled={!message.trim() || isProcessing}
+        disabled={!message.trim() || isInputDisabled}
         className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
       >
-        {isProcessing ? 'Processing...' : 'Send'}
+        {isProcessing ? 'Processing...' : disabled ? 'Loading...' : 'Send'}
       </button>
     </div>
   );

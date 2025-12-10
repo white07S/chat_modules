@@ -6,6 +6,7 @@ import { Message, DbToolCall, ChartSpecData } from '../types/messages';
 
 interface MessageListProps {
   messages: Message[];
+  isLoadingHistory?: boolean;
 }
 
 type TabKey = 'response' | 'db' | 'chart';
@@ -427,7 +428,7 @@ const ConversationMessage: React.FC<ConversationMessageProps> = ({
   );
 };
 
-export const MessageList: React.FC<MessageListProps> = ({ messages }) => {
+export const MessageList: React.FC<MessageListProps> = ({ messages, isLoadingHistory = false }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [expandedTimelines, setExpandedTimelines] = useState<Set<string>>(new Set());
 
@@ -470,6 +471,9 @@ export const MessageList: React.FC<MessageListProps> = ({ messages }) => {
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {isLoadingHistory && (
+        <div className="text-center text-sm text-gray-500">Loading thread history...</div>
+      )}
       {messages.map((message) => {
         if (message.type === 'conversation') {
           const isExpanded = expandedTimelines.has(message.id);

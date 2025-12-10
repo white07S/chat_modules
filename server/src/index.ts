@@ -8,6 +8,8 @@ import { Thread } from '@openai/codex-sdk';
 import { logger } from './lib/logger.js';
 import { AgentManager } from './lib/AgentManager.js';
 import { SSEManager } from './lib/SSEManager.js';
+import { initializeDatabase } from './lib/db.js';
+import { ThreadStore } from './lib/ThreadStore.js';
 
 // Load environment variables
 config({ path: '.env.dev' });
@@ -38,6 +40,7 @@ class CodexChatServer {
   private app: express.Application;
   private agentManager: AgentManager;
   private sseManager: SSEManager;
+  private threadStore: ThreadStore;
   private jobs: Map<string, JobInfo> = new Map();
   private port: number;
 
@@ -45,11 +48,14 @@ class CodexChatServer {
     this.app = express();
     this.agentManager = new AgentManager();
     this.sseManager = new SSEManager();
+    this.threadStore = new ThreadStore();
     this.port = parseInt(process.env.PORT || '3000', 10);
   }
 
   async initialize() {
     logger.info({ event: 'server_init' }, 'Initializing Codex Chat Server');
+
+    await initializeDatabase();
 
     // Initialize agent manager
     await this.agentManager.initialize();
@@ -115,6 +121,42 @@ class CodexChatServer {
     this.app.get('/threads', (req, res) => {
       const threads = this.agentManager.getActiveThreads();
       res.json({ threads });
+    });
+
+    // Persisted sessions & history
+    this.app.get('/sessions', async (req, res) => {
+      try {
+        const agentType = typeof req.query.agentType === 'string' ? req.query.agentType : undefined;
+        const threads = await this.threadStore.listThreads(agentType);
+        res.json({ threads });
+      } catch (error) {
+        logger.error({
+          event: 'sessions_list_error',
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to list sessions');
+        res.status(500).json({ error: 'Failed to fetch sessions' });
+      }
+    });
+
+    this.app.get('/sessions/:threadId/events', async (req, res) => {
+      try {
+        const threadId = req.params.threadId;
+        const thread = await this.threadStore.getThread(threadId);
+        if (!thread) {
+          res.status(404).json({ error: 'Thread not found' });
+          return;
+        }
+
+        const events = await this.threadStore.getThreadEvents(threadId);
+        res.json({ thread, events });
+      } catch (error) {
+        logger.error({
+          event: 'sessions_events_error',
+          threadId: req.params.threadId,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Failed to fetch session events');
+        res.status(500).json({ error: 'Failed to fetch session events' });
+      }
     });
 
     // Get job status
@@ -228,14 +270,14 @@ class CodexChatServer {
 
       // Get or create thread
       let thread: Thread;
-      let actualThreadId: string;
+      let actualThreadId: string | null = job.threadId || null;
+      let threadMetadataPersisted = false;
 
       if (job.threadId) {
         // Try to get existing thread
         const existingThread = this.agentManager.getThread(job.threadId);
         if (existingThread) {
           thread = existingThread.thread;
-          actualThreadId = job.threadId;
           logger.info({
             event: 'thread_reused',
             threadId: job.threadId
@@ -244,7 +286,6 @@ class CodexChatServer {
           // Resume thread if not in memory
           try {
             thread = await this.agentManager.resumeThread(job.agentType, job.threadId);
-            actualThreadId = job.threadId;
             logger.info({
               event: 'thread_resumed',
               threadId: job.threadId
@@ -254,6 +295,7 @@ class CodexChatServer {
             const result = this.agentManager.startThread(job.agentType);
             thread = result.thread;
             actualThreadId = result.threadId;
+            job.threadId = actualThreadId;
             logger.warn({
               event: 'thread_resume_failed_new_created',
               oldThreadId: job.threadId,
@@ -269,20 +311,64 @@ class CodexChatServer {
         job.threadId = actualThreadId;
       }
 
-      // Send thread info to client
-      this.sseManager.sendToClient(job.clientId, {
-        type: 'thread_info',
-        jobId: job.jobId,
-        threadId: actualThreadId,
-        agentType: job.agentType,
-        timestamp: new Date().toISOString()
-      });
+      if (actualThreadId && !this.isTemporaryThreadId(actualThreadId)) {
+        const persistedThreadId = actualThreadId;
+        await this.safeThreadOperation(() => this.threadStore.upsertThread({
+          id: persistedThreadId,
+          agentType: job.agentType,
+          title: message.slice(0, 120),
+          lastUserMessage: message,
+          lastClientId: job.clientId
+        }), { event: 'thread_upsert_error', threadId: persistedThreadId });
+        threadMetadataPersisted = true;
+
+        this.sseManager.sendToClient(job.clientId, {
+          type: 'thread_info',
+          jobId: job.jobId,
+          threadId: persistedThreadId,
+          agentType: job.agentType,
+          timestamp: new Date().toISOString()
+        });
+      }
 
       // Process with streaming
       const { events } = await thread.runStreamed(message, options);
 
       // Stream events to client
       for await (const event of events) {
+        if (!threadMetadataPersisted && event.type === 'thread.started' && event.thread_id) {
+          if (!actualThreadId || actualThreadId !== event.thread_id) {
+            if (actualThreadId) {
+              this.agentManager.updateThreadId(actualThreadId, event.thread_id);
+            }
+            actualThreadId = event.thread_id;
+            job.threadId = event.thread_id;
+          }
+
+          const persistedThreadId = event.thread_id;
+          await this.safeThreadOperation(() => this.threadStore.upsertThread({
+            id: persistedThreadId,
+            agentType: job.agentType,
+            title: message.slice(0, 120),
+            lastUserMessage: message,
+            lastClientId: job.clientId
+          }), { event: 'thread_upsert_error', threadId: persistedThreadId });
+          threadMetadataPersisted = true;
+
+          this.sseManager.sendToClient(job.clientId, {
+            type: 'thread_info',
+            jobId: job.jobId,
+            threadId: persistedThreadId,
+            agentType: job.agentType,
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        if (!actualThreadId) {
+          logger.warn({ event: 'missing_thread_id_event', jobId: job.jobId }, 'Skipping event without thread id');
+          continue;
+        }
+
         // Transform and send event
         const transformedEvent = {
           type: 'agent_event',
@@ -300,6 +386,35 @@ class CodexChatServer {
         // Update thread activity
         this.agentManager.updateThreadActivity(actualThreadId);
 
+         if (threadMetadataPersisted) {
+           const persistedThreadId = actualThreadId;
+           await this.safeThreadOperation(
+             () => this.threadStore.appendEvent(persistedThreadId, job.jobId, transformedEvent),
+             {
+               event: 'thread_event_persist_error',
+               threadId: persistedThreadId,
+               jobId: job.jobId
+             }
+           );
+
+           if (
+             event.type === 'item.completed' &&
+             'item' in event &&
+             (event as any).item?.type === 'agent_message' &&
+             (event as any).item?.text
+           ) {
+             await this.safeThreadOperation(
+               () => this.threadStore.updateThreadMeta(persistedThreadId, {
+                 lastAgentMessage: (event as any).item.text
+               }),
+               {
+                 event: 'thread_meta_update_error',
+                 threadId: persistedThreadId
+               }
+             );
+           }
+         }
+
         // Log significant events
         if (event.type === 'turn.completed' || event.type === 'item.completed') {
           logger.info({
@@ -314,15 +429,28 @@ class CodexChatServer {
       // Mark job as completed
       job.status = 'completed';
       job.endTime = new Date();
-
-      // Send completion event
-      this.sseManager.sendToClient(job.clientId, {
+      const completionEvent = {
         type: 'job_complete',
         jobId: job.jobId,
         threadId: actualThreadId,
         duration: job.endTime.getTime() - job.startTime.getTime(),
         timestamp: new Date().toISOString()
-      });
+      };
+
+      // Send completion event
+      this.sseManager.sendToClient(job.clientId, completionEvent);
+
+      if (threadMetadataPersisted && actualThreadId) {
+        const persistedThreadId = actualThreadId;
+        await this.safeThreadOperation(
+          () => this.threadStore.appendEvent(persistedThreadId, job.jobId, completionEvent),
+          {
+            event: 'thread_event_persist_error',
+            threadId: persistedThreadId,
+            jobId: job.jobId
+          }
+        );
+      }
 
       logger.info({
         event: 'chat_processing_complete',
@@ -342,13 +470,42 @@ class CodexChatServer {
         error: job.error
       }, 'Chat processing failed');
 
-      // Send error to client
-      this.sseManager.sendToClient(job.clientId, {
+      const errorEvent = {
         type: 'error',
         jobId: job.jobId,
         error: job.error,
         timestamp: new Date().toISOString()
-      });
+      };
+
+      // Send error to client
+      this.sseManager.sendToClient(job.clientId, errorEvent);
+
+      if (job.threadId && !this.isTemporaryThreadId(job.threadId)) {
+        const persistedThreadId = job.threadId;
+        await this.safeThreadOperation(
+          () => this.threadStore.appendEvent(persistedThreadId, job.jobId, errorEvent),
+          {
+            event: 'thread_event_persist_error',
+            threadId: persistedThreadId,
+            jobId: job.jobId
+          }
+        );
+      }
+    }
+  }
+
+  private isTemporaryThreadId(id?: string | null): boolean {
+    return !!id && id.startsWith('temp_');
+  }
+
+  private async safeThreadOperation(operation: () => Promise<void>, meta: Record<string, unknown>) {
+    try {
+      await operation();
+    } catch (error) {
+      logger.error({
+        ...meta,
+        error: error instanceof Error ? error.message : String(error)
+      }, 'Thread persistence error');
     }
   }
 
