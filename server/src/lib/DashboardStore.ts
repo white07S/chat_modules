@@ -1,6 +1,10 @@
-import { Knex } from 'knex';
+import { asc, desc, eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
-import { db } from './db.js';
+import type { Database } from './db.js';
+import { getDb, persistDatabase } from './db.js';
+import { dashboardPlots, dashboards, type DashboardPlotRow } from './schema.js';
+
+type DashboardPlotInsert = typeof dashboardPlots.$inferInsert;
 
 export const MAX_PLOTS_PER_DASHBOARD = 6;
 
@@ -60,24 +64,30 @@ export interface UpdatePlotPayload {
 }
 
 export class DashboardStore {
-  private knex: Knex;
+  private databaseProvider: () => Database;
 
-  constructor(knexInstance: Knex = db) {
-    this.knex = knexInstance;
+  constructor(databaseProvider: () => Database = getDb) {
+    this.databaseProvider = databaseProvider;
+  }
+
+  private db(): Database {
+    return this.databaseProvider();
   }
 
   async listDashboards(): Promise<DashboardSummary[]> {
-    const rows = await this.knex('dashboards as d')
-      .leftJoin('dashboard_plots as p', 'd.id', 'p.dashboard_id')
-      .select(
-        'd.id',
-        'd.name',
-        'd.created_at as createdAt',
-        'd.updated_at as updatedAt'
-      )
-      .count<{ plotCount: number }>({ plotCount: 'p.id' })
-      .groupBy('d.id')
-      .orderBy('d.updated_at', 'desc') as unknown as Array<any>;
+    const database = this.db();
+    const rows = await database
+      .select({
+        id: dashboards.id,
+        name: dashboards.name,
+        createdAt: dashboards.createdAt,
+        updatedAt: dashboards.updatedAt,
+        plotCount: sql<number>`count(${dashboardPlots.id})`
+      })
+      .from(dashboards)
+      .leftJoin(dashboardPlots, eq(dashboardPlots.dashboardId, dashboards.id))
+      .groupBy(dashboards.id)
+      .orderBy(desc(dashboards.updatedAt));
 
     return rows.map((row) => ({
       id: row.id,
@@ -89,14 +99,17 @@ export class DashboardStore {
   }
 
   async createDashboard(payload: CreateDashboardPayload): Promise<DashboardSummary> {
+    const database = this.db();
     const now = new Date().toISOString();
     const id = uuidv4();
-    await this.knex('dashboards').insert({
+
+    await database.insert(dashboards).values({
       id,
       name: payload.name,
-      created_at: now,
-      updated_at: now
+      createdAt: now,
+      updatedAt: now
     });
+    await persistDatabase();
 
     return {
       id,
@@ -108,22 +121,30 @@ export class DashboardStore {
   }
 
   async getDashboard(id: string): Promise<DashboardDetails | null> {
-    const dashboard = await this.knex('dashboards').where({ id }).first();
+    const database = this.db();
+    const rows = await database
+      .select()
+      .from(dashboards)
+      .where(eq(dashboards.id, id))
+      .limit(1);
+    const dashboard = rows[0];
     if (!dashboard) {
       return null;
     }
 
-    const plots = await this.knex('dashboard_plots')
-      .where({ dashboard_id: id })
-      .orderBy('created_at', 'asc');
+    const plots = await database
+      .select()
+      .from(dashboardPlots)
+      .where(eq(dashboardPlots.dashboardId, id))
+      .orderBy(asc(dashboardPlots.createdAt));
 
     return {
       dashboard: {
         id: dashboard.id,
         name: dashboard.name,
         plotCount: plots.length,
-        createdAt: dashboard.created_at,
-        updatedAt: dashboard.updated_at
+        createdAt: dashboard.createdAt,
+        updatedAt: dashboard.updatedAt
       },
       plots: plots.map(this.mapPlotRow)
     };
@@ -131,41 +152,48 @@ export class DashboardStore {
 
   async updateDashboard(id: string, updates: Partial<CreateDashboardPayload>): Promise<void> {
     if (!updates.name) return;
-    await this.knex('dashboards')
-      .where({ id })
-      .update({
+    const database = this.db();
+    await database
+      .update(dashboards)
+      .set({
         name: updates.name,
-        updated_at: new Date().toISOString()
-      });
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(dashboards.id, id));
+    await persistDatabase();
   }
 
   async deleteDashboard(id: string): Promise<void> {
-    await this.knex('dashboards').where({ id }).delete();
+    const database = this.db();
+    await database.delete(dashboards).where(eq(dashboards.id, id));
+    await persistDatabase();
   }
 
   async addPlot(payload: CreatePlotPayload): Promise<DashboardPlot> {
     await this.ensureCapacity(payload.dashboardId);
+    const database = this.db();
 
     const now = new Date().toISOString();
     const id = uuidv4();
     const layout = this.normalizeLayout(payload.layout);
 
-    await this.knex('dashboard_plots').insert({
+    await database.insert(dashboardPlots).values({
       id,
-      dashboard_id: payload.dashboardId,
+      dashboardId: payload.dashboardId,
       title: payload.title,
-      chart_spec: JSON.stringify(payload.chartSpec ?? {}),
-      chart_option: payload.chartOption ? JSON.stringify(payload.chartOption) : null,
-      agent_type: payload.agentType ?? null,
-      source_thread_id: payload.sourceThreadId ?? null,
-      source_event_id: payload.sourceEventId ?? null,
-      layout_x: layout.x,
-      layout_y: layout.y,
-      layout_w: layout.w,
-      layout_h: layout.h,
-      created_at: now,
-      updated_at: now
+      chartSpec: JSON.stringify(payload.chartSpec ?? {}),
+      chartOption: payload.chartOption ? JSON.stringify(payload.chartOption) : null,
+      agentType: payload.agentType ?? null,
+      sourceThreadId: payload.sourceThreadId ?? null,
+      sourceEventId: payload.sourceEventId ?? null,
+      layoutX: layout.x,
+      layoutY: layout.y,
+      layoutW: layout.w,
+      layoutH: layout.h,
+      createdAt: now,
+      updatedAt: now
     });
+    await persistDatabase();
 
     return {
       id,
@@ -183,62 +211,84 @@ export class DashboardStore {
   }
 
   async getPlot(plotId: string): Promise<DashboardPlot | null> {
-    const row = await this.knex('dashboard_plots').where({ id: plotId }).first();
+    const database = this.db();
+    const rows = await database
+      .select()
+      .from(dashboardPlots)
+      .where(eq(dashboardPlots.id, plotId))
+      .limit(1);
+    const row = rows[0];
     return row ? this.mapPlotRow(row) : null;
   }
 
   async updatePlot(plotId: string, updates: UpdatePlotPayload): Promise<DashboardPlot | null> {
-    const existing = await this.knex('dashboard_plots').where({ id: plotId }).first();
+    const database = this.db();
+    const rows = await database
+      .select()
+      .from(dashboardPlots)
+      .where(eq(dashboardPlots.id, plotId))
+      .limit(1);
+    const existing = rows[0];
     if (!existing) {
       return null;
     }
 
-    const targetDashboardId = updates.dashboardId ?? existing.dashboard_id;
-    if (targetDashboardId !== existing.dashboard_id) {
+    const targetDashboardId = updates.dashboardId ?? existing.dashboardId;
+    if (targetDashboardId !== existing.dashboardId) {
       await this.ensureCapacity(targetDashboardId);
     }
 
     const layout = this.normalizeLayout(updates.layout, {
-      x: existing.layout_x,
-      y: existing.layout_y,
-      w: existing.layout_w,
-      h: existing.layout_h
+      x: existing.layoutX ?? 0,
+      y: existing.layoutY ?? 0,
+      w: existing.layoutW ?? 6,
+      h: existing.layoutH ?? 6
     });
 
-    const payload: Record<string, unknown> = {
-      dashboard_id: targetDashboardId,
-      layout_x: layout.x,
-      layout_y: layout.y,
-      layout_w: layout.w,
-      layout_h: layout.h,
-      updated_at: new Date().toISOString()
+    const payload: Partial<DashboardPlotInsert> = {
+      dashboardId: targetDashboardId,
+      layoutX: layout.x,
+      layoutY: layout.y,
+      layoutW: layout.w,
+      layoutH: layout.h,
+      updatedAt: new Date().toISOString()
     };
 
     if (typeof updates.title === 'string') {
       payload.title = updates.title;
     }
     if (updates.chartSpec) {
-      payload.chart_spec = JSON.stringify(updates.chartSpec);
+      payload.chartSpec = JSON.stringify(updates.chartSpec);
     }
     if (updates.chartOption !== undefined) {
-      payload.chart_option = updates.chartOption ? JSON.stringify(updates.chartOption) : null;
+      payload.chartOption = updates.chartOption ? JSON.stringify(updates.chartOption) : null;
     }
 
-    await this.knex('dashboard_plots').where({ id: plotId }).update(payload);
+    await database
+      .update(dashboardPlots)
+      .set(payload)
+      .where(eq(dashboardPlots.id, plotId));
+    await persistDatabase();
 
     return this.getPlot(plotId);
   }
 
   async deletePlot(plotId: string): Promise<void> {
-    await this.knex('dashboard_plots').where({ id: plotId }).delete();
+    const database = this.db();
+    await database.delete(dashboardPlots).where(eq(dashboardPlots.id, plotId));
+    await persistDatabase();
   }
 
   private async ensureCapacity(dashboardId: string): Promise<void> {
-    const row = await this.knex('dashboard_plots')
-      .where({ dashboard_id: dashboardId })
-      .count<{ count: number }>({ count: 'id' })
-      .first();
-    const count = Number(row?.count ?? 0);
+    const database = this.db();
+    const rows = await database
+      .select({
+        count: sql<number>`count(${dashboardPlots.id})`
+      })
+      .from(dashboardPlots)
+      .where(eq(dashboardPlots.dashboardId, dashboardId));
+
+    const count = Number(rows[0]?.count ?? 0);
     if (count >= MAX_PLOTS_PER_DASHBOARD) {
       throw new Error('Dashboard is at capacity');
     }
@@ -256,37 +306,39 @@ export class DashboardStore {
     };
   }
 
-  private mapPlotRow = (row: any): DashboardPlot => {
+  private mapPlotRow = (row: DashboardPlotRow): DashboardPlot => {
     let chartSpec: Record<string, unknown> = {};
     let chartOption: Record<string, unknown> | null = null;
+
     try {
-      chartSpec = row.chart_spec ? JSON.parse(row.chart_spec) : {};
+      chartSpec = row.chartSpec ? JSON.parse(row.chartSpec) : {};
     } catch {
       chartSpec = {};
     }
+
     try {
-      chartOption = row.chart_option ? JSON.parse(row.chart_option) : null;
+      chartOption = row.chartOption ? JSON.parse(row.chartOption) : null;
     } catch {
       chartOption = null;
     }
 
     return {
       id: row.id,
-      dashboardId: row.dashboard_id,
+      dashboardId: row.dashboardId,
       title: row.title,
       chartSpec,
       chartOption,
-      agentType: row.agent_type,
-      sourceThreadId: row.source_thread_id,
-      sourceEventId: row.source_event_id,
+      agentType: row.agentType ?? undefined,
+      sourceThreadId: row.sourceThreadId ?? null,
+      sourceEventId: row.sourceEventId ?? null,
       layout: {
-        x: row.layout_x ?? 0,
-        y: row.layout_y ?? 0,
-        w: row.layout_w ?? 6,
-        h: row.layout_h ?? 6
+        x: row.layoutX ?? 0,
+        y: row.layoutY ?? 0,
+        w: row.layoutW ?? 6,
+        h: row.layoutH ?? 6
       },
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
     };
   };
 }

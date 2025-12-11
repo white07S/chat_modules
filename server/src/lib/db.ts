@@ -1,8 +1,12 @@
-import knex, { Knex } from 'knex';
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
+import { createRequire } from 'module';
+import initSqlJs, { type Database as SqlJsRawDatabase, type SqlJsStatic } from 'sql.js';
+import { drizzle, type SQLJsDatabase } from 'drizzle-orm/sql-js';
 import { logger } from './logger.js';
+import * as schema from './schema.js';
+
+const require = createRequire(import.meta.url);
 
 const resolveDatabasePath = (): string => {
   const configuredPath = process.env.SQLITE_DB_PATH;
@@ -22,112 +26,136 @@ const resolveDatabasePath = (): string => {
 
 const databasePath = resolveDatabasePath();
 
-export const db: Knex = knex({
-  client: 'sqlite3',
-  connection: {
-    filename: databasePath
-  },
-  useNullAsDefault: true
-});
+export type Database = SQLJsDatabase<typeof schema>;
+
+let sqlJsInstance: SqlJsStatic | null = null;
+let sqlJsDatabase: SqlJsRawDatabase | null = null;
+let drizzleDb: Database | null = null;
+let initializationPromise: Promise<void> | null = null;
+
+const locateWasmFile = (file: string): string => {
+  const wasmDir = path.dirname(require.resolve('sql.js/dist/sql-wasm.wasm'));
+  return path.join(wasmDir, file);
+};
+
+const ensureDatabase = async (): Promise<void> => {
+  if (drizzleDb) {
+    return;
+  }
+  if (initializationPromise) {
+    return initializationPromise;
+  }
+
+  initializationPromise = (async () => {
+    sqlJsInstance = await initSqlJs({ locateFile: locateWasmFile });
+
+    const existing = fs.existsSync(databasePath)
+      ? new Uint8Array(fs.readFileSync(databasePath))
+      : null;
+    sqlJsDatabase = existing ? new sqlJsInstance.Database(existing) : new sqlJsInstance.Database();
+
+    drizzleDb = drizzle(sqlJsDatabase, { schema });
+
+    await initializeSchema();
+    await persistDatabase();
+  })().catch((error) => {
+    drizzleDb = null;
+    sqlJsDatabase = null;
+    initializationPromise = null;
+    logger.error({
+      event: 'db_init_failed',
+      error: error instanceof Error ? error.message : String(error)
+    }, 'Failed to initialize SQL.js database');
+    throw error;
+  });
+
+  return initializationPromise;
+};
+
+const initializeSchema = async (): Promise<void> => {
+  if (!sqlJsDatabase) {
+    throw new Error('SQL.js database is not ready');
+  }
+
+  sqlJsDatabase.run('PRAGMA foreign_keys = ON');
+
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS threads (
+      id TEXT PRIMARY KEY,
+      agent_type TEXT NOT NULL,
+      title TEXT,
+      last_user_message TEXT,
+      last_agent_message TEXT,
+      last_client_id TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS thread_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      job_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_payload TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_thread_events_thread_id ON thread_events(thread_id);`,
+    `CREATE TABLE IF NOT EXISTS dashboards (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS dashboard_plots (
+      id TEXT PRIMARY KEY,
+      dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      chart_spec TEXT NOT NULL,
+      chart_option TEXT,
+      agent_type TEXT,
+      source_thread_id TEXT,
+      source_event_id TEXT,
+      layout_x INTEGER NOT NULL DEFAULT 0,
+      layout_y INTEGER NOT NULL DEFAULT 0,
+      layout_w INTEGER NOT NULL DEFAULT 6,
+      layout_h INTEGER NOT NULL DEFAULT 6,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_dashboard_plots_dashboard_id ON dashboard_plots(dashboard_id);`,
+    `CREATE TABLE IF NOT EXISTS agent_knowledge (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_type TEXT,
+      thread_id TEXT,
+      message_id TEXT,
+      sql_text TEXT NOT NULL,
+      sql_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_knowledge_sql_hash ON agent_knowledge(sql_hash);`,
+    `CREATE INDEX IF NOT EXISTS idx_agent_knowledge_thread_id ON agent_knowledge(thread_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_agent_knowledge_agent_type ON agent_knowledge(agent_type);`
+  ];
+
+  for (const statement of statements) {
+    sqlJsDatabase.run(statement);
+  }
+
+  logger.info({ event: 'db_schema_ready' }, 'Ensured SQL.js schema exists');
+};
+
+export const persistDatabase = async (): Promise<void> => {
+  if (!sqlJsDatabase) return;
+  const data = sqlJsDatabase.export();
+  await fs.promises.writeFile(databasePath, Buffer.from(data));
+};
+
+export const getDb = (): Database => {
+  if (!drizzleDb) {
+    throw new Error('Database not initialized. Call initializeDatabase() before using it.');
+  }
+  return drizzleDb;
+};
 
 export const initializeDatabase = async (): Promise<void> => {
-  await db.raw('PRAGMA foreign_keys = ON');
-
-  const hasThreads = await db.schema.hasTable('threads');
-  if (!hasThreads) {
-    await db.schema.createTable('threads', (table) => {
-      table.string('id').primary();
-      table.string('agent_type').notNullable();
-      table.string('title');
-      table.text('last_user_message');
-      table.text('last_agent_message');
-      table.string('last_client_id');
-      table.timestamp('created_at').defaultTo(db.fn.now());
-      table.timestamp('updated_at').defaultTo(db.fn.now());
-    });
-    logger.info({ event: 'db_schema', table: 'threads' }, 'Created threads table');
-  }
-
-  const hasThreadEvents = await db.schema.hasTable('thread_events');
-  if (!hasThreadEvents) {
-    await db.schema.createTable('thread_events', (table) => {
-      table.increments('id').primary();
-      table.string('thread_id').notNullable().references('threads.id').onDelete('CASCADE');
-      table.string('job_id').notNullable();
-      table.string('event_type').notNullable();
-      table.text('event_payload').notNullable();
-      table.timestamp('created_at').defaultTo(db.fn.now());
-      table.index(['thread_id'], 'idx_thread_events_thread_id');
-    });
-    logger.info({ event: 'db_schema', table: 'thread_events' }, 'Created thread_events table');
-  }
-
-  const hasDashboards = await db.schema.hasTable('dashboards');
-  if (!hasDashboards) {
-    await db.schema.createTable('dashboards', (table) => {
-      table.string('id').primary();
-      table.string('name').notNullable();
-      table.timestamp('created_at').defaultTo(db.fn.now());
-      table.timestamp('updated_at').defaultTo(db.fn.now());
-    });
-    logger.info({ event: 'db_schema', table: 'dashboards' }, 'Created dashboards table');
-  }
-
-  const hasDashboardPlots = await db.schema.hasTable('dashboard_plots');
-  if (!hasDashboardPlots) {
-    await db.schema.createTable('dashboard_plots', (table) => {
-      table.string('id').primary();
-      table.string('dashboard_id').notNullable().references('dashboards.id').onDelete('CASCADE');
-      table.string('title').notNullable();
-      table.text('chart_spec').notNullable();
-      table.text('chart_option');
-      table.string('agent_type');
-      table.string('source_thread_id');
-      table.string('source_event_id');
-      table.integer('layout_x').defaultTo(0);
-      table.integer('layout_y').defaultTo(0);
-      table.integer('layout_w').defaultTo(6);
-      table.integer('layout_h').defaultTo(6);
-      table.timestamp('created_at').defaultTo(db.fn.now());
-      table.timestamp('updated_at').defaultTo(db.fn.now());
-      table.index(['dashboard_id'], 'idx_dashboard_plots_dashboard_id');
-    });
-    logger.info({ event: 'db_schema', table: 'dashboard_plots' }, 'Created dashboard_plots table');
-  }
-
-  const hasAgentKnowledge = await db.schema.hasTable('agent_knowledge');
-  if (!hasAgentKnowledge) {
-    await db.schema.createTable('agent_knowledge', (table) => {
-      table.increments('id').primary();
-      table.string('agent_type');
-      table.string('thread_id');
-      table.string('message_id');
-      table.text('sql_text').notNullable();
-      table.string('sql_hash', 64).notNullable().unique('idx_agent_knowledge_sql_hash');
-      table.timestamp('created_at').defaultTo(db.fn.now());
-      table.index(['thread_id'], 'idx_agent_knowledge_thread_id');
-      table.index(['agent_type'], 'idx_agent_knowledge_agent_type');
-    });
-    logger.info({ event: 'db_schema', table: 'agent_knowledge' }, 'Created agent_knowledge table');
-  } else {
-    const hasSqlHashColumn = await db.schema.hasColumn('agent_knowledge', 'sql_hash');
-    if (!hasSqlHashColumn) {
-      await db.schema.alterTable('agent_knowledge', (table) => {
-        table.string('sql_hash', 64);
-      });
-
-      const existingRows: Array<{ id: number; sql_text: string }> = await db('agent_knowledge')
-        .select('id', 'sql_text')
-        .whereNull('sql_hash');
-
-      for (const row of existingRows) {
-        const hash = crypto.createHash('sha256').update(row.sql_text || '').digest('hex');
-        await db('agent_knowledge')
-          .where('id', row.id)
-          .update({ sql_hash: hash });
-      }
-
-      logger.info({ event: 'db_schema', table: 'agent_knowledge' }, 'Added sql_hash column to agent_knowledge table');
-    }
-  }
+  await ensureDatabase();
 };

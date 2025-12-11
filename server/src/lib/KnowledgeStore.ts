@@ -1,6 +1,8 @@
 import crypto from 'crypto';
-import { db } from './db.js';
+import { inArray } from 'drizzle-orm';
+import { getDb, persistDatabase } from './db.js';
 import { logger } from './logger.js';
+import { agentKnowledge } from './schema.js';
 
 export interface KnowledgeEntryInput {
   agentType?: string | null;
@@ -51,28 +53,35 @@ export const saveKnowledgeEntries = async (entries: KnowledgeEntryInput[]): Prom
   const dedupedPrepared = Array.from(dedupMap.values());
   const duplicatesFromPayload = prepared.length - dedupedPrepared.length;
 
+  const database = getDb();
+
   const uniqueHashes = dedupedPrepared.map((entry) => entry.sqlHash);
-  const existingRows: Array<{ sql_hash: string }> = uniqueHashes.length === 0
-    ? []
-    : await db('agent_knowledge').select('sql_hash').whereIn('sql_hash', uniqueHashes);
-  const existingHashes = new Set((existingRows || []).map((row) => row.sql_hash));
+  const existingRows: Array<{ sqlHash: string }> =
+    uniqueHashes.length === 0
+      ? []
+      : await database
+        .select({ sqlHash: agentKnowledge.sqlHash })
+        .from(agentKnowledge)
+        .where(inArray(agentKnowledge.sqlHash, uniqueHashes));
+  const existingHashes = new Set((existingRows || []).map((row) => row.sqlHash));
 
   const rowsToInsert = dedupedPrepared
     .filter((entry) => !existingHashes.has(entry.sqlHash))
     .map((entry) => ({
-      agent_type: entry.agentType,
-      thread_id: entry.threadId,
-      message_id: entry.messageId,
-      sql_text: entry.sqlText,
-      sql_hash: entry.sqlHash,
-      created_at: db.fn.now()
+      agentType: entry.agentType,
+      threadId: entry.threadId,
+      messageId: entry.messageId,
+      sqlText: entry.sqlText,
+      sqlHash: entry.sqlHash,
+      createdAt: new Date().toISOString()
     }));
 
   const duplicates = duplicatesFromPayload + (dedupedPrepared.length - rowsToInsert.length);
 
   try {
     if (rowsToInsert.length > 0) {
-      await db('agent_knowledge').insert(rowsToInsert);
+      await database.insert(agentKnowledge).values(rowsToInsert);
+      await persistDatabase();
     }
     logger.info({ event: 'knowledge_saved', count: rowsToInsert.length, duplicates }, 'Processed knowledge entries');
     return { saved: rowsToInsert.length, duplicates };
