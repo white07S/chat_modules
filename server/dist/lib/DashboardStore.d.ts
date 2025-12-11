@@ -1,4 +1,4 @@
-import { Knex } from 'knex';
+import type { Database } from './db.js';
 export declare const MAX_PLOTS_PER_DASHBOARD = 6;
 export interface DashboardSummary {
     id: string;
@@ -50,8 +50,9 @@ export interface UpdatePlotPayload {
     layout?: Partial<DashboardPlot['layout']>;
 }
 export declare class DashboardStore {
-    private knex;
-    constructor(knexInstance?: Knex);
+    private databaseProvider;
+    constructor(databaseProvider?: () => Database);
+    private db;
     listDashboards(): Promise<DashboardSummary[]>;
     createDashboard(payload: CreateDashboardPayload): Promise<DashboardSummary>;
     getDashboard(id: string): Promise<DashboardDetails | null>;

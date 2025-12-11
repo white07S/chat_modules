@@ -1,4 +1,4 @@
-import { Knex } from 'knex';
+import type { Database } from './db.js';
 export interface PersistedThread {
     threadId: string;
     agentType: string;
@@ -16,8 +16,9 @@ interface ThreadUpsertPayload {
     lastClientId?: string;
 }
 export declare class ThreadStore {
-    private knex;
-    constructor(knexInstance?: Knex);
+    private databaseProvider;
+    constructor(databaseProvider?: () => Database);
+    private db;
     upsertThread(payload: ThreadUpsertPayload): Promise<void>;
     updateThreadMeta(threadId: string, updates: Partial<Omit<ThreadUpsertPayload, 'id' | 'agentType'>>): Promise<void>;
     appendEvent(threadId: string, jobId: string, event: any): Promise<void>;

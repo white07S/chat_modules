@@ -6,3 +6,4 @@ sessions/
 server/logs/
 server/data/
 server/data/codex_chat.sqlite
+server/dist/

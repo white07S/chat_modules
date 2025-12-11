@@ -1,109 +1,143 @@
-import { db } from './db.js';
+import { asc, desc, eq } from 'drizzle-orm';
+import { getDb, persistDatabase } from './db.js';
 import { logger } from './logger.js';
+import { threadEvents, threads } from './schema.js';
 const mapThreadRow = (row) => {
     if (!row) {
         throw new Error('Invalid thread row');
     }
     return {
         threadId: row.id,
-        agentType: row.agent_type,
-        title: row.title || row.last_user_message || `Thread ${row.id.slice(-6)}`,
-        lastUserMessage: row.last_user_message,
-        lastAgentMessage: row.last_agent_message,
-        updatedAt: row.updated_at
+        agentType: row.agentType,
+        title: row.title || row.lastUserMessage || `Thread ${row.id.slice(-6)}`,
+        lastUserMessage: row.lastUserMessage,
+        lastAgentMessage: row.lastAgentMessage,
+        updatedAt: row.updatedAt
     };
 };
 export class ThreadStore {
-    knex;
-    constructor(knexInstance = db) {
-        this.knex = knexInstance;
+    databaseProvider;
+    constructor(databaseProvider = getDb) {
+        this.databaseProvider = databaseProvider;
+    }
+    db() {
+        return this.databaseProvider();
     }
     async upsertThread(payload) {
         const { id, agentType, title, lastUserMessage, lastAgentMessage, lastClientId } = payload;
         const now = new Date().toISOString();
-        const existing = await this.knex('threads').where({ id }).first();
-        if (existing) {
-            const resolvedTitle = existing.title || title;
-            await this.knex('threads')
-                .where({ id })
-                .update({
-                agent_type: agentType,
+        const database = this.db();
+        const existing = await database
+            .select()
+            .from(threads)
+            .where(eq(threads.id, id))
+            .limit(1);
+        const existingRow = existing[0];
+        if (existingRow) {
+            const resolvedTitle = existingRow.title || title;
+            await database
+                .update(threads)
+                .set({
+                agentType,
                 title: resolvedTitle,
-                last_user_message: lastUserMessage ?? existing.last_user_message,
-                last_agent_message: lastAgentMessage ?? existing.last_agent_message,
-                last_client_id: lastClientId ?? existing.last_client_id,
-                updated_at: now
-            });
+                lastUserMessage: lastUserMessage ?? existingRow.lastUserMessage,
+                lastAgentMessage: lastAgentMessage ?? existingRow.lastAgentMessage,
+                lastClientId: lastClientId ?? existingRow.lastClientId,
+                updatedAt: now
+            })
+                .where(eq(threads.id, id));
+            await persistDatabase();
             return;
         }
-        await this.knex('threads').insert({
+        await database.insert(threads).values({
             id,
-            agent_type: agentType,
-            title,
-            last_user_message: lastUserMessage,
-            last_agent_message: lastAgentMessage,
-            last_client_id: lastClientId,
-            created_at: now,
-            updated_at: now
+            agentType,
+            title: title ?? null,
+            lastUserMessage: lastUserMessage ?? null,
+            lastAgentMessage: lastAgentMessage ?? null,
+            lastClientId: lastClientId ?? null,
+            createdAt: now,
+            updatedAt: now
         });
+        await persistDatabase();
     }
     async updateThreadMeta(threadId, updates) {
         if (!threadId)
             return;
+        const database = this.db();
         const payload = {};
         if (typeof updates.title === 'string') {
-            payload.title = updates.title;
+            payload.title = updates.title ?? null;
         }
         if (typeof updates.lastUserMessage === 'string') {
-            payload.last_user_message = updates.lastUserMessage;
+            payload.lastUserMessage = updates.lastUserMessage ?? null;
         }
         if (typeof updates.lastAgentMessage === 'string') {
-            payload.last_agent_message = updates.lastAgentMessage;
+            payload.lastAgentMessage = updates.lastAgentMessage ?? null;
         }
         if (typeof updates.lastClientId === 'string') {
-            payload.last_client_id = updates.lastClientId;
+            payload.lastClientId = updates.lastClientId ?? null;
         }
         if (Object.keys(payload).length === 0) {
             return;
         }
-        payload.updated_at = new Date().toISOString();
-        await this.knex('threads')
-            .where({ id: threadId })
-            .update(payload);
+        payload.updatedAt = new Date().toISOString();
+        await database
+            .update(threads)
+            .set(payload)
+            .where(eq(threads.id, threadId));
+        await persistDatabase();
     }
     async appendEvent(threadId, jobId, event) {
         if (!threadId) {
             logger.warn({ event: 'thread_event_no_thread', jobId }, 'Unable to persist event without thread id');
             return;
         }
-        await this.knex('thread_events').insert({
-            thread_id: threadId,
-            job_id: jobId,
-            event_type: event.type,
-            event_payload: JSON.stringify(event),
-            created_at: new Date().toISOString()
+        const database = this.db();
+        await database.insert(threadEvents).values({
+            threadId,
+            jobId,
+            eventType: event.type,
+            eventPayload: JSON.stringify(event),
+            createdAt: new Date().toISOString()
         });
+        await persistDatabase();
     }
     async listThreads(agentType) {
-        const query = this.knex('threads').orderBy('updated_at', 'desc');
-        if (agentType) {
-            query.where({ agent_type: agentType });
-        }
-        const rows = await query.select();
+        const database = this.db();
+        const rows = agentType
+            ? await database
+                .select()
+                .from(threads)
+                .where(eq(threads.agentType, agentType))
+                .orderBy(desc(threads.updatedAt))
+            : await database
+                .select()
+                .from(threads)
+                .orderBy(desc(threads.updatedAt));
         return rows.map(mapThreadRow);
     }
     async getThread(threadId) {
-        const row = await this.knex('threads').where({ id: threadId }).first();
+        const database = this.db();
+        const rows = await database
+            .select()
+            .from(threads)
+            .where(eq(threads.id, threadId))
+            .limit(1);
+        const row = rows[0];
         return row ? mapThreadRow(row) : null;
     }
     async getThreadEvents(threadId) {
-        const rows = await this.knex('thread_events')
-            .where({ thread_id: threadId })
-            .orderBy('id', 'asc');
+        const database = this.db();
+        const rows = await database
+            .select()
+            .from(threadEvents)
+            .where(eq(threadEvents.threadId, threadId))
+            .orderBy(asc(threadEvents.id));
         return rows.map((row) => {
-            let payload = row.event_payload;
+            let payload = row.eventPayload;
             try {
-                payload = JSON.parse(row.event_payload);
+                payload = JSON.parse(row.eventPayload);
             }
             catch (error) {
                 logger.error({
