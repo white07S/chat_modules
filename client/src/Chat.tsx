@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageCircle, RefreshCw, Sunrise, Sun, Sunset, Moon, type LucideIcon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { apiService, Agent, SSEEvent, PersistedThread, DashboardSummary, DashboardDetailsResponse } from './api';
+import { apiService, RESPONSE_MODE } from './api';
+import type { Agent, SSEEvent, PersistedThread, DashboardSummary, DashboardDetailsResponse, ResponseMode } from './api';
 import { MessageList } from './components/MessageList';
 import { MessageInput } from './components/MessageInput';
 import { Message, ChartSpecData } from './types/messages';
@@ -69,6 +70,8 @@ const resolveGreeting = (): GreetingState => {
 const headerLogo = resolveBrandAsset(branding.logoHeader);
 
 export const Chat: React.FC = () => {
+  const responseMode: ResponseMode = RESPONSE_MODE;
+  const isRestMode = responseMode === 'rest';
   // Event type labels mapping (1-2 words each)
   const getEventLabel = (eventType: string, subType?: string): string => {
     // Handle composite events with subtypes
@@ -149,6 +152,7 @@ export const Chat: React.FC = () => {
   const isConnectedRef = useRef(false);
   const currentConversationRef = useRef<string | null>(null);
   const threadFilterRef = useRef<string>('all');
+  const restModeNoticeRef = useRef(false);
 
   const setActiveConversationId = (conversationId: string | null) => {
     currentConversationRef.current = conversationId;
@@ -182,6 +186,13 @@ export const Chat: React.FC = () => {
       timestamp: new Date().toISOString(),
     });
   }, [addMessage]);
+
+  useEffect(() => {
+    if (isRestMode && !restModeNoticeRef.current) {
+      addSystemMessage('Streaming disabled. Using REST mode fallback; responses appear after processing.');
+      restModeNoticeRef.current = true;
+    }
+  }, [isRestMode, addSystemMessage]);
 
   const loadDashboards = useCallback(async () => {
     try {
@@ -367,11 +378,15 @@ export const Chat: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Connect SSE when agent changes
+  // Connect SSE when agent changes (no-op in REST mode)
   useEffect(() => {
-    connectSSE();
+    if (!isRestMode) {
+      connectSSE();
+    } else {
+      isConnectedRef.current = true;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgent]);
+  }, [selectedAgent, isRestMode]);
 
   const loadAgents = async () => {
     try {
@@ -403,6 +418,10 @@ export const Chat: React.FC = () => {
   }, [threadFilterAgent, loadPersistedThreads]);
 
   const connectSSE = () => {
+    if (isRestMode) {
+      isConnectedRef.current = true;
+      return;
+    }
     // Close existing connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -783,7 +802,7 @@ export const Chat: React.FC = () => {
   };
 
   const sendMessage = async (message: string) => {
-    if (!isConnectedRef.current) {
+    if (!isRestMode && !isConnectedRef.current) {
       addSystemMessage('Not connected. Please wait...');
       connectSSE();
       return;
@@ -812,9 +831,15 @@ export const Chat: React.FC = () => {
         agentType: selectedAgent,
         message,
         threadId: currentThreadId || undefined,
-      });
+      }, responseMode);
 
       setCurrentJobId(response.jobId);
+
+      if (isRestMode && Array.isArray(response.events)) {
+        for (const event of response.events) {
+          handleSSEMessage(event);
+        }
+      }
     } catch (error) {
       setIsProcessing(false);
       updateConversation({

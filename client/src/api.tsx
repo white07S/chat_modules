@@ -3,6 +3,11 @@ import { ChartSpecData } from './types/messages';
 
 const API_BASE_URL = 'http://localhost:3000';
 
+export type ResponseMode = 'sse' | 'rest';
+
+export const RESPONSE_MODE: ResponseMode = 'rest';
+  // process.env.REACT_APP_RESPONSE_MODE === 'rest' ? 'rest' : 'sse';
+
 export interface Agent {
   type: string;
   name: string;
@@ -17,11 +22,16 @@ export interface ChatMessage {
   message: string;
   threadId?: string;
   options?: any;
+  responseMode?: ResponseMode;
 }
 
 export interface JobResponse {
   jobId: string;
   status: string;
+  responseMode?: ResponseMode;
+  events?: SSEEvent[];
+  threadId?: string | null;
+  error?: string | null;
 }
 
 export interface ThreadInfo {
@@ -159,8 +169,9 @@ class ApiService {
   }
 
   // Send chat message
-  async sendMessage(message: ChatMessage): Promise<JobResponse> {
-    const response = await this.axios.post('/chat', message);
+  async sendMessage(message: ChatMessage, responseMode: ResponseMode = RESPONSE_MODE): Promise<JobResponse> {
+    const payload = { ...message, responseMode };
+    const response = await this.axios.post('/chat', payload);
     return response.data;
   }
 

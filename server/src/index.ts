@@ -16,6 +16,8 @@ import { saveKnowledgeEntries } from './lib/KnowledgeStore.js';
 // Load environment variables
 config({ path: '.env.dev' });
 
+type ResponseMode = 'sse' | 'rest';
+
 interface ChatRequest {
   clientId: string;
   agentType: string;
@@ -25,6 +27,7 @@ interface ChatRequest {
     outputSchema?: any;
     multimodal?: Array<{ type: string; path?: string; text?: string }>;
   };
+  responseMode?: ResponseMode;
 }
 
 interface JobInfo {
@@ -36,6 +39,7 @@ interface JobInfo {
   startTime: Date;
   endTime?: Date;
   error?: string;
+  responseMode: ResponseMode;
 }
 
 class CodexChatServer {
@@ -414,6 +418,7 @@ class CodexChatServer {
       try {
         const chatRequest: ChatRequest = req.body;
         const { clientId, agentType, message, threadId, options } = chatRequest;
+        const responseMode: ResponseMode = chatRequest.responseMode === 'rest' ? 'rest' : 'sse';
 
         // Validate request
         if (!clientId || !agentType || !message) {
@@ -422,7 +427,7 @@ class CodexChatServer {
         }
 
         // Check if client is connected via SSE
-        if (!this.sseManager.isClientConnected(clientId)) {
+        if (responseMode === 'sse' && !this.sseManager.isClientConnected(clientId)) {
           res.status(400).json({ error: 'Client not connected. Connect via SSE first.' });
           return;
         }
@@ -435,14 +440,32 @@ class CodexChatServer {
           agentType,
           threadId: threadId || '',
           status: 'queued',
-          startTime: new Date()
+          startTime: new Date(),
+          responseMode
         };
         this.jobs.set(jobId, jobInfo);
+
+        if (responseMode === 'rest') {
+          const collectedEvents: any[] = [];
+          await this.processChat(jobInfo, message, options, (event) => {
+            collectedEvents.push(event);
+          });
+
+          res.json({
+            jobId,
+            status: jobInfo.status,
+            threadId: jobInfo.threadId || null,
+            events: collectedEvents,
+            responseMode: 'rest',
+            error: jobInfo.error || null
+          });
+          return;
+        }
 
         // Queue for processing
         setImmediate(() => this.processChat(jobInfo, message, options));
 
-        res.json({ jobId, status: 'queued' });
+        res.json({ jobId, status: 'queued', responseMode: 'sse' });
 
       } catch (error) {
         logger.error({
@@ -498,7 +521,12 @@ class CodexChatServer {
     });
   }
 
-  private async processChat(job: JobInfo, message: string, options?: any) {
+  private async processChat(
+    job: JobInfo,
+    message: string,
+    options?: ChatRequest['options'],
+    eventSink?: (event: any) => void
+  ) {
     try {
       // Update job status
       job.status = 'processing';
@@ -514,9 +542,17 @@ class CodexChatServer {
       let threadMetadataPersisted = false;
       let userEventPersisted = false;
 
+      const dispatchEvent = (payload: any) => {
+        if (eventSink) {
+          eventSink(payload);
+        } else {
+          this.sseManager.sendToClient(job.clientId, payload);
+        }
+      };
+
       const ensureUserEventPersisted = async () => {
         if (!userEventPersisted && threadMetadataPersisted && actualThreadId && !this.isTemporaryThreadId(actualThreadId)) {
-          await this.persistUserMessageEvent(job, actualThreadId, message);
+          await this.persistUserMessageEvent(job, actualThreadId, message, dispatchEvent);
           userEventPersisted = true;
         }
       };
@@ -570,7 +606,7 @@ class CodexChatServer {
         }), { event: 'thread_upsert_error', threadId: persistedThreadId });
         threadMetadataPersisted = true;
 
-        this.sseManager.sendToClient(job.clientId, {
+        dispatchEvent({
           type: 'thread_info',
           jobId: job.jobId,
           threadId: persistedThreadId,
@@ -605,7 +641,7 @@ class CodexChatServer {
           }), { event: 'thread_upsert_error', threadId: persistedThreadId });
           threadMetadataPersisted = true;
 
-          this.sseManager.sendToClient(job.clientId, {
+          dispatchEvent({
             type: 'thread_info',
             jobId: job.jobId,
             threadId: persistedThreadId,
@@ -633,7 +669,7 @@ class CodexChatServer {
           }
         };
 
-        this.sseManager.sendToClient(job.clientId, transformedEvent);
+        dispatchEvent(transformedEvent);
 
         // Update thread activity
         this.agentManager.updateThreadActivity(actualThreadId);
@@ -690,7 +726,7 @@ class CodexChatServer {
       };
 
       // Send completion event
-      this.sseManager.sendToClient(job.clientId, completionEvent);
+      dispatchEvent(completionEvent);
 
       if (threadMetadataPersisted && actualThreadId) {
         const persistedThreadId = actualThreadId;
@@ -730,7 +766,7 @@ class CodexChatServer {
       };
 
       // Send error to client
-      this.sseManager.sendToClient(job.clientId, errorEvent);
+      dispatchEvent(errorEvent);
 
       if (job.threadId && !this.isTemporaryThreadId(job.threadId)) {
         const persistedThreadId = job.threadId;
@@ -750,7 +786,12 @@ class CodexChatServer {
     return !!id && id.startsWith('temp_');
   }
 
-  private async persistUserMessageEvent(job: JobInfo, threadId: string, message: string) {
+  private async persistUserMessageEvent(
+    job: JobInfo,
+    threadId: string,
+    message: string,
+    eventSink?: (event: any) => void
+  ) {
     const timestamp = new Date().toISOString();
     const userEvent = {
       type: 'agent_event',
@@ -767,8 +808,11 @@ class CodexChatServer {
         timestamp
       }
     };
-
-    this.sseManager.sendToClient(job.clientId, userEvent);
+    if (eventSink) {
+      eventSink(userEvent);
+    } else {
+      this.sseManager.sendToClient(job.clientId, userEvent);
+    }
     await this.safeThreadOperation(
       () => this.threadStore.appendEvent(threadId, job.jobId, userEvent),
       {
