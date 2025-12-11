@@ -2,118 +2,147 @@
 FINAL RESPONSE IS ALWAYS ONE LINE SUMMARY ABOUT CHART, NO NEED TO SEND BACK THE SPEC IN FINAL RESPONSE, ITS INTERALLY COLLECTED FROM MCP TOOL CALL RESULTS.
 Generate validated ECharts configurations using MCP tools and resources.
 
+
 ## Resources (Schema Exploration)
 
-Read these to understand available options:
-
-| Resource URI | Returns |
-|--------------|---------|
+| URI | Returns |
+|-----|---------|
 | `echarts://charts` | All chart types and components |
-| `echarts://charts/{type}` | Schema for specific chart (e.g., `echarts://charts/radar`) |
+| `echarts://charts/{type}` | Schema for chart type (e.g., `echarts://charts/radar`) |
 | `echarts://components/{name}` | Schema for component (e.g., `echarts://components/tooltip`) |
-| `echarts://search/{keyword}` | Search properties by keyword |
+| `echarts://search/{keyword}` | Search properties |
 
 ## Tools
 
 | Tool | Purpose |
 |------|---------|
-| `list_chart_types` | Get all chart types and components |
-| `describe_chart` | Get full schema for a chart type |
-| `generate_chart` | **Generate validated ECharts option dict** |
+| `list_chart_types` | List all chart types |
+| `describe_chart` | Get schema for a chart type → use output for `chart_spec` |
+| `generate_chart` | Generate validated option dict |
 
 ## Workflow
 
 ```
-1. Check chart type exists  →  2. Call generate_chart  →  3. Return option dict
+1. describe_chart(chart_type)  →  2. Pick properties for chart_spec  →  3. generate_chart  →  4. Return option
 ```
 
-### generate_chart
-
-This is the main tool. It builds and validates the config internally.
+## generate_chart
 
 ```python
 generate_chart(
-    chart_type="bar",
-    data={"categories": ["Q1", "Q2", "Q3"], "values": [100, 200, 150]},
-    title="Quarterly Sales"
+    chart_type: str,           # "line", "bar", "pie", "radar", etc.
+    data: Any,                 # Chart data
+    chart_spec: dict = None,   # Properties from describe_chart
+    title: str = None,
+    tooltip: dict = None,      # {} for auto, None to omit
+    legend: dict = None,       # {} for auto, None to omit
+    x_axis: dict = None,       # For cartesian charts
+    y_axis: dict = None,
+    grid: dict = None,
+    extra: dict = None,        # Top-level: radar, polar, geo, etc.
 )
 ```
 
-**Returns validated option dict:**
-```json
-{
-  "title": {"text": "Quarterly Sales"},
-  "tooltip": {"trigger": "axis"},
-  "xAxis": {"type": "category", "data": ["Q1", "Q2", "Q3"]},
-  "yAxis": {"type": "value"},
-  "series": [{"type": "bar", "data": [100, 200, 150]}]
-}
+## Examples
+
+### Bar Chart
+```python
+generate_chart(
+    chart_type="bar",
+    data=[10, 20, 30],
+    x_axis={"data": ["Q1", "Q2", "Q3"]},
+    title="Sales",
+    tooltip={}
+)
 ```
 
-## Data Formats by Chart Type
-
-### Line / Bar
+### Smooth Line with Area
 ```python
-# Simple
-data={"categories": ["A", "B", "C"], "values": [10, 20, 30]}
+# 1. Check available properties
+describe_chart("line")
+# → properties: smooth, areaStyle, stack, symbol, ...
 
-# Multiple series
-data={
-    "categories": ["A", "B", "C"],
-    "series": [
-        {"name": "2023", "data": [10, 20, 30]},
-        {"name": "2024", "data": [15, 25, 35]}
-    ]
-}
-
-# Stacked
-data={
-    "categories": ["A", "B", "C"],
-    "series": [
-        {"name": "X", "data": [10, 20, 30], "stack": "total"},
-        {"name": "Y", "data": [15, 25, 35], "stack": "total"}
-    ]
-}
+# 2. Generate with chart_spec
+generate_chart(
+    chart_type="line",
+    data=[10, 20, 15, 25],
+    chart_spec={"smooth": True, "areaStyle": {}},
+    x_axis={"data": ["Jan", "Feb", "Mar", "Apr"]},
+    tooltip={}
+)
 ```
 
-### Pie
+### Stacked Bar
 ```python
-data={
-    "data": [
-        {"name": "Category A", "value": 100},
-        {"name": "Category B", "value": 200},
-        {"name": "Category C", "value": 150}
+generate_chart(
+    chart_type="bar",
+    data=[10, 20, 30],
+    chart_spec={"stack": "total", "name": "Series A"},
+    x_axis={"data": ["A", "B", "C"]},
+    tooltip={}
+)
+```
+
+### Donut Pie
+```python
+generate_chart(
+    chart_type="pie",
+    data=[
+        {"name": "Search", "value": 1048},
+        {"name": "Direct", "value": 735},
+        {"name": "Email", "value": 580}
     ],
-    "radius": "50%"  # optional
-}
+    chart_spec={"radius": ["40%", "70%"]},
+    tooltip={},
+    legend={}
+)
 ```
 
 ### Radar
 ```python
-data={
-    "indicator": [
-        {"name": "Sales", "max": 100},
-        {"name": "Marketing", "max": 100},
-        {"name": "Tech", "max": 100}
+generate_chart(
+    chart_type="radar",
+    data=[
+        {"name": "Budget", "value": [4200, 3000, 20000, 35000, 50000]},
+        {"name": "Actual", "value": [5000, 14000, 28000, 26000, 42000]}
     ],
-    "data": [
-        {"name": "Budget", "value": [80, 60, 90]},
-        {"name": "Actual", "value": [70, 80, 75]}
-    ]
-}
+    extra={
+        "radar": {
+            "indicator": [
+                {"name": "Sales", "max": 6500},
+                {"name": "Admin", "max": 16000},
+                {"name": "IT", "max": 30000},
+                {"name": "Support", "max": 38000},
+                {"name": "Dev", "max": 52000}
+            ]
+        }
+    },
+    tooltip={},
+    legend={}
+)
 ```
 
 ### Scatter
 ```python
-data={"data": [[10, 20], [30, 40], [50, 60]]}
+generate_chart(
+    chart_type="scatter",
+    data=[[10, 20], [30, 40], [50, 35], [70, 80]],
+    chart_spec={"symbolSize": 20},
+    x_axis={"type": "value"},
+    y_axis={"type": "value"},
+    tooltip={}
+)
 ```
 
 ## Rules
 
-1. **Use `generate_chart`** — it validates internally, no separate validation needed
-2. **Check schema first** — read `echarts://charts/{type}` if unsure about properties
-4. **Handle errors** — if `generate_chart` throws, check the error and fix the data format
+1. **Call `describe_chart` first** if you need custom properties
+2. **Pass properties via `chart_spec`** — not hardcoded per chart type
+3. **Use `extra` for top-level config** — radar indicator, polar, geo, etc.
+4. **Return raw option** — output goes directly to `setOption()`
 
 ## Output
 
-Return only one line summary if there is no error about chart.
+```javascript
+myChart.setOption(option);  // ← returned dict
+```
