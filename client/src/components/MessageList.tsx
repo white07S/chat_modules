@@ -105,7 +105,10 @@ const buildChartOptionWithDownload = (option: Record<string, unknown>): EChartsO
 };
 
 const MarkdownBlock: React.FC<{ content: string }> = ({ content }) => (
-  <div className="markdown-body text-sm leading-relaxed text-gray-900 space-y-2">
+  <div
+    className="markdown-body text-sm leading-relaxed space-y-2"
+    style={{ color: 'var(--brand-text)' }}
+  >
     <ReactMarkdown remarkPlugins={[remarkGfm]}>
       {content || ''}
     </ReactMarkdown>
@@ -113,7 +116,14 @@ const MarkdownBlock: React.FC<{ content: string }> = ({ content }) => (
 );
 
 const StreamingResponse: React.FC<{ message: Message }> = ({ message }) => (
-  <div className="px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-green-900 text-sm">
+  <div
+    className="px-4 py-3 rounded-[var(--brand-radius)] border text-sm"
+    style={{
+      backgroundColor: 'var(--brand-primary-soft)',
+      borderColor: 'var(--brand-primary)',
+      color: 'var(--brand-primary)'
+    }}
+  >
     <div className="whitespace-pre-wrap break-words">
       {message.assistantMessage || 'Waiting for assistant response...'}
       {message.isStreaming && <span className="animate-pulse ml-1">▊</span>}
@@ -289,7 +299,7 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <label className="text-xs font-semibold uppercase text-gray-600">
+        <label className="text-xs font-semibold uppercase text-brand-muted">
           SQL Tool Call
           <select
             value={selectedCallId}
@@ -297,7 +307,7 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
               setSelectedCallId(event.target.value);
               setPage(1);
             }}
-            className="mt-1 block w-full sm:w-56 rounded-md border-gray-300 text-sm"
+            className="brand-input text-sm mt-1 sm:w-56"
           >
             {calls.map((call, index) => (
               <option key={call.id} value={call.id}>
@@ -306,20 +316,20 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
             ))}
           </select>
         </label>
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-brand-muted">
           {rows.length} row{rows.length === 1 ? '' : 's'} captured
         </div>
       </div>
 
       <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">SQL Query</p>
-        <div className="rounded-md border border-gray-200 overflow-hidden">
+        <p className="text-xs font-semibold text-brand-muted mb-1">SQL Query</p>
+        <div className="rounded-[var(--brand-radius)] border border-brand overflow-hidden">
           <SyntaxHighlighter
             language="sql"
             style={oneLight}
             customStyle={{
               margin: 0,
-              backgroundColor: '#fff',
+              backgroundColor: 'var(--brand-surface)',
               fontSize: '0.75rem',
               padding: '0.75rem',
               lineHeight: '1.25rem'
@@ -337,24 +347,24 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
       )}
 
       {rows.length === 0 ? (
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-brand-muted">
           {selectedCall.parseError ? 'Showing raw output instead.' : 'Query returned no rows.'}
           {selectedCall.rawResult && (
-            <pre className="mt-2 rounded-md bg-gray-100 text-xs p-3 overflow-auto max-h-48">
+            <pre className="mt-2 rounded-[var(--brand-radius)] bg-[var(--brand-surface-muted)] text-xs p-3 overflow-auto max-h-48">
               {selectedCall.rawResult}
             </pre>
           )}
         </div>
       ) : (
         <div className="space-y-2">
-          <div className="overflow-x-auto border border-gray-200 rounded-md">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <div className="overflow-x-auto border border-brand rounded-[var(--brand-radius)]">
+            <table className="min-w-full divide-y divide-gray-200 brand-table">
+              <thead>
                 <tr>
                   {columns.map(column => (
                     <th
                       key={column}
-                      className="px-3 py-2 text-left text-xs font-semibold text-gray-600"
+                      className="px-3 py-2 text-left"
                     >
                       {column}
                     </th>
@@ -367,7 +377,7 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
                     {columns.map(column => (
                       <td
                         key={column}
-                        className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap"
+                        className="px-3 py-2 text-xs text-brand-muted whitespace-nowrap"
                       >
                         {formatCellValue(row[column])}
                       </td>
@@ -379,14 +389,14 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
           </div>
 
           <div className="space-y-1">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-gray-600">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-brand-muted">
               <div>
                 Rows {rows.length === 0 ? 0 : startIndex + 1}-{Math.min(startIndex + ROWS_PER_PAGE, rows.length)} of {rows.length}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                  className="btn btn-outline btn-sm"
                   onClick={handleCopyCurrentPage}
                   disabled={pageRows.length === 0}
                   title="Copy just the rows visible on this page"
@@ -395,7 +405,7 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
                 </button>
                 <button
                   type="button"
-                  className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 disabled:cursor-not-allowed"
+                  className="btn btn-primary btn-sm"
                   onClick={handleDownloadAllCsv}
                   disabled={rows.length === 0}
                   title="Download every row as a CSV file"
@@ -404,7 +414,7 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
                 </button>
                 <button
                   type="button"
-                  className="px-2 py-1 rounded border border-green-500 text-green-600 hover:bg-green-50 disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                  className="btn btn-secondary btn-sm"
                   onClick={handleSaveKnowledge}
                   disabled={!onSaveKnowledge || !hasSqlStatements || isSavingKnowledge}
                   title="Store these SQL statements for future retrieval"
@@ -414,7 +424,7 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  className="px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                  className="btn btn-outline btn-sm"
                   onClick={() => setPage(prev => Math.max(1, prev - 1))}
                   disabled={page === 1}
                 >
@@ -424,7 +434,7 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
                   Page {page} / {totalPages}
                 </span>
                 <button
-                  className="px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                  className="btn btn-outline btn-sm"
                   onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
                   disabled={page === totalPages}
                 >
@@ -434,7 +444,7 @@ const DbResultsTab: React.FC<DbResultsTabProps> = ({ calls, onSaveKnowledge }) =
             </div>
             {actionFeedback && (
               <div
-                className={`text-xs ${actionFeedback.tone === 'success' ? 'text-green-600' : 'text-red-600'}`}
+                className={`text-xs ${actionFeedback.tone === 'success' ? 'text-brand-text' : 'text-red-500'}`}
               >
                 {actionFeedback.message}
               </div>
@@ -479,36 +489,36 @@ const ChartTab: React.FC<{ spec?: ChartSpecData | null; onPin?: () => void }> = 
   }, [spec?.option]);
 
   if (!spec) {
-    return <div className="text-sm text-gray-600">Chart specification not available.</div>;
+    return <div className="text-sm text-brand-muted">Chart specification not available.</div>;
   }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-gray-600">Rendered chart</p>
+        <p className="text-xs font-semibold text-brand-muted">Rendered chart</p>
         {onPin && spec?.option && (
           <button
             onClick={onPin}
-            className="text-xs px-3 py-1 rounded-md border border-blue-500 text-blue-600 hover:bg-blue-50"
+            className="btn btn-outline btn-sm"
           >
             Pin to dashboard
           </button>
         )}
       </div>
       {spec.parseError && (
-        <div className="text-xs text-red-600">
+        <div className="text-xs text-red-500">
           Unable to parse chart specification: {spec.parseError}
         </div>
       )}
       {spec.option ? (
-        <div ref={chartRef} className="w-full h-80 rounded-md bg-white" />
+        <div ref={chartRef} className="w-full h-80 rounded-[var(--brand-radius)] bg-white" />
       ) : (
-        <div className="text-sm text-gray-600">Chart option not available.</div>
+        <div className="text-sm text-brand-muted">Chart option not available.</div>
       )}
       {!spec.option && spec.rawSpec && (
         <div>
-          <p className="text-xs font-semibold text-gray-600 mb-1">Raw Spec</p>
-          <pre className="bg-gray-900 text-gray-100 text-xs p-3 rounded-md overflow-auto max-h-48">
+          <p className="text-xs font-semibold text-brand-muted mb-1">Raw Spec</p>
+          <pre className="bg-gray-900 text-gray-100 text-xs p-3 rounded-[var(--brand-radius)] overflow-auto max-h-48">
             {spec.rawSpec}
           </pre>
         </div>
@@ -581,23 +591,25 @@ const AgentResponseTabs: React.FC<AgentResponseTabsProps> = ({ message, onPinCha
   };
 
   return (
-    <div className="border border-green-200 rounded-lg shadow-sm bg-white">
-      <div className="flex border-b border-gray-200">
-        {tabs.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 px-3 py-2 text-xs font-semibold uppercase tracking-wide transition-colors ${
-              activeTab === tab.key
-                ? 'text-green-700 border-b-2 border-green-600 bg-green-50'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+    <div className="panel p-0">
+      <div className="flex border-b border-brand">
+        {tabs.map(tab => {
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-1 px-4 py-3 text-xs font-semibold uppercase tracking-wide transition-colors ${
+                isActive ? 'text-brand-text bg-[var(--brand-primary-soft)]' : 'text-brand-muted hover:text-brand-text'
+              }`}
+              style={{ borderBottom: isActive ? '2px solid var(--brand-primary)' : '2px solid transparent' }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
-      <div className="p-4 text-gray-900 text-sm bg-white">
+      <div className="p-4 text-sm" style={{ color: 'var(--brand-text)' }}>
         {renderContent()}
       </div>
     </div>
@@ -627,14 +639,14 @@ const ConversationMessage: React.FC<ConversationMessageProps> = ({
   );
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {message.userMessage && (
         <div className="flex justify-end">
-          <div className="max-w-3xl px-4 py-2 rounded-lg bg-blue-100 text-blue-900">
-            <div className="flex items-center space-x-2 mb-1">
-              <span className="font-semibold text-xs uppercase">USER</span>
-              {message.agentType && <span className="text-xs opacity-75">({message.agentType})</span>}
-              <span className="text-xs opacity-50">{timestamp}</span>
+          <div className="conversation-bubble bubble-user">
+            <div className="flex items-center gap-2 mb-2 text-xs font-semibold uppercase">
+              <span>User</span>
+              {message.agentType && <span className="text-brand-muted normal-case font-normal">({message.agentType})</span>}
+              <span className="text-xs opacity-70 normal-case font-normal">{timestamp}</span>
             </div>
             <div className="whitespace-pre-wrap break-words">{message.userMessage}</div>
           </div>
@@ -642,9 +654,9 @@ const ConversationMessage: React.FC<ConversationMessageProps> = ({
       )}
 
       <div className="flex justify-start">
-        <div className="max-w-3xl w-full">
-          <div className="flex items-center space-x-2 text-xs text-gray-500 mb-1">
-            <span className="font-semibold text-gray-700 uppercase">ASSISTANT</span>
+        <div className="w-full space-y-2">
+          <div className="flex items-center gap-2 text-xs text-brand-muted">
+            <span className="badge">Assistant</span>
             {message.agentType && <span>({message.agentType})</span>}
             <span>{timestamp}</span>
           </div>
@@ -659,19 +671,19 @@ const ConversationMessage: React.FC<ConversationMessageProps> = ({
           )}
 
           {message.timeline && message.timeline.length > 0 && (
-            <div className="mt-2 ml-2">
+            <div className="mt-2">
               <button
                 onClick={onToggleTimeline}
-                className="flex items-center space-x-1 text-xs text-gray-600 hover:text-gray-800 transition-colors"
+                className="flex items-center gap-2 text-xs text-brand-text font-semibold"
               >
-                <span>{isTimelineExpanded ? '▼' : '▶'}</span>
-                <span>Timeline ({message.timeline.length} steps)</span>
+                <span className="timeline-pill">{message.timeline.length} steps</span>
+                <span>{isTimelineExpanded ? 'Hide timeline' : 'Show timeline'}</span>
               </button>
               {isTimelineExpanded && (
-                <div className="mt-2 pl-4 border-l-2 border-gray-300 space-y-1">
+                <div className="mt-2 space-y-2 rounded-[var(--brand-radius)] border border-brand p-3 bg-[var(--brand-surface)]">
                   {message.timeline.map((step, idx) => (
-                    <div key={idx} className="flex items-start space-x-2 text-xs text-gray-600">
-                      <span className="font-medium whitespace-nowrap">{step.label}:</span>
+                    <div key={idx} className="flex items-start gap-3 text-xs text-brand-muted">
+                      <span className="font-semibold text-brand-text">{step.label}</span>
                       <span className="flex-1">{step.content}</span>
                     </div>
                   ))}
@@ -740,22 +752,22 @@ export const MessageList: React.FC<MessageListProps> = ({
   const getMessageStyles = (type: string) => {
     switch (type) {
       case 'user':
-        return 'bg-blue-100 text-blue-900 self-end';
+        return 'bubble-user self-end';
       case 'assistant':
-        return 'bg-green-100 text-green-900 self-start';
+        return 'bubble-assistant self-start';
       case 'system':
-        return 'bg-gray-100 text-gray-700 self-center text-sm';
+        return 'bubble-system self-center text-sm';
       case 'tool':
-        return 'bg-yellow-100 text-yellow-900 self-start text-sm';
+        return 'bubble-assistant text-sm';
       case 'event':
-        return 'bg-purple-100 text-purple-900 self-start text-xs';
+        return 'bubble-system text-xs';
       default:
-        return 'bg-gray-100 text-gray-900';
+        return 'bubble-assistant';
     }
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+    <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 surface-alt">
       {isLoadingHistory && (
         <div className="text-center text-sm text-gray-500">Loading thread history...</div>
       )}
@@ -777,7 +789,7 @@ export const MessageList: React.FC<MessageListProps> = ({
         if (message.type === 'system') {
           return (
             <div key={message.id} className="flex justify-center">
-              <div className="max-w-3xl px-4 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm">
+              <div className="conversation-bubble bubble-system text-sm">
                 {message.content}
               </div>
             </div>
@@ -793,7 +805,7 @@ export const MessageList: React.FC<MessageListProps> = ({
             key={message.id}
             className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            <div className={`max-w-3xl px-4 py-2 rounded-lg ${getMessageStyles(message.type)}`}>
+            <div className={`conversation-bubble ${getMessageStyles(message.type)}`}>
               <div className="flex items-center space-x-2 mb-1">
                 <span className="font-semibold text-xs uppercase">{message.type}</span>
                 {message.agentType && (

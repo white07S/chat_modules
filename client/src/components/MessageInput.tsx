@@ -1,4 +1,5 @@
 import React, { useState, KeyboardEvent } from 'react';
+import { Send } from 'lucide-react';
 
 interface MessageInputProps {
   onSendMessage: (message: string) => void;
@@ -30,23 +31,26 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   return (
-    <div className="flex space-x-2 p-4 bg-white border-t">
+    <div className="flex flex-col gap-3 p-4 surface-alt border-t border-brand">
       <textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         onKeyPress={handleKeyPress}
         placeholder="Type your message... (Press Enter to send, Shift+Enter for new line)"
         disabled={isInputDisabled}
-        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-        rows={3}
+        className="brand-input resize-none min-h-[96px]"
+        rows={4}
       />
-      <button
-        onClick={handleSend}
-        disabled={!message.trim() || isInputDisabled}
-        className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-      >
-        {isProcessing ? 'Processing...' : disabled ? 'Loading...' : 'Send'}
-      </button>
+      <div className="flex items-center justify-end">
+        <button
+          onClick={handleSend}
+          disabled={!message.trim() || isInputDisabled}
+          className="btn btn-primary"
+        >
+          {isProcessing ? 'Processing' : disabled ? 'Loading' : 'Send'}
+          <Send size={16} />
+        </button>
+      </div>
     </div>
   );
 };

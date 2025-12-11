@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Download, MoveRight, Trash2 } from 'lucide-react';
 import { DashboardDetailsResponse, DashboardSummary } from '../api';
 import * as echarts from 'echarts';
 import { Responsive as LegacyResponsive, WidthProvider } from 'react-grid-layout/legacy';
@@ -90,11 +91,11 @@ const PlotCard: React.FC<{
   const moveTargets = dashboards.filter(d => d.id !== dashboardId);
 
   return (
-    <div className="h-full w-full bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col">
-      <div className="p-3 border-b border-gray-100 flex items-center justify-between gap-2">
+    <div className="h-full w-full panel flex flex-col">
+      <div className="p-3 border-b border-brand flex items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-gray-900 truncate">{title}</div>
-          {agentType && <div className="text-xs text-gray-500">Agent: {agentType}</div>}
+          <div className="text-sm font-semibold text-brand-text truncate">{title}</div>
+          {agentType && <div className="text-xs text-brand-muted">Agent: {agentType}</div>}
         </div>
         <div className="flex items-center gap-2">
           {moveTargets.length > 0 && (
@@ -102,7 +103,7 @@ const PlotCard: React.FC<{
               <select
                 value={selectedDestination}
                 onChange={(event) => setSelectedDestination(event.target.value)}
-                className="text-xs border border-gray-300 rounded-md px-2 py-1"
+                className="brand-input text-xs w-32"
               >
                 <option value="">Move to...</option>
                 {moveTargets.map(target => (
@@ -119,20 +120,18 @@ const PlotCard: React.FC<{
                   }
                 }}
                 disabled={!selectedDestination}
-                className={`text-xs px-2 py-1 rounded-md border ${
-                  selectedDestination
-                    ? 'border-purple-500 text-purple-600 hover:bg-purple-50'
-                    : 'border-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
+                className="btn btn-outline btn-sm"
               >
+                <MoveRight size={14} />
                 Move
               </button>
             </>
           )}
           <button
             onClick={() => onRemove(plotId)}
-            className="text-xs text-red-600 hover:text-red-800"
+            className="btn btn-ghost btn-sm text-red-500"
           >
+            <Trash2 size={14} />
             Unpin
           </button>
         </div>
@@ -210,21 +209,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col gap-4 p-4">
-      <div className="flex items-center justify-between">
+    <div className="flex-1 flex flex-col gap-4 p-6 surface-alt">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="text-lg font-semibold text-gray-900">{details.dashboard.name}</div>
-          <div className="text-xs text-gray-500">{details.plots.length} chart(s) pinned</div>
+          <div className="text-lg font-semibold text-brand-text">{details.dashboard.name}</div>
+          <div className="text-xs text-brand-muted">{details.plots.length} chart(s) pinned</div>
         </div>
         <button
           onClick={handleDownload}
-          className="px-3 py-2 text-sm rounded-md bg-blue-500 text-white hover:bg-blue-600"
+          className="btn btn-secondary btn-sm"
         >
+          <Download size={16} />
           Download PNG
         </button>
       </div>
       {plots.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-sm text-gray-500 border border-dashed border-gray-300 rounded-lg">
+        <div className="flex-1 panel flex items-center justify-center text-sm text-brand-muted border-dashed border-2 border-brand">
           Pin charts from viz_agent responses to build a dashboard.
         </div>
       ) : (

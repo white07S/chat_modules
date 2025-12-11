@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { MessageCircle, RefreshCw, Sunrise, Sun, Sunset, Moon, type LucideIcon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { apiService, Agent, SSEEvent, PersistedThread, DashboardSummary, DashboardDetailsResponse } from './api';
 import { MessageList } from './components/MessageList';
@@ -8,6 +9,64 @@ import { collectTextFromToolContent, parseChartSpec, parseSqlResult, safeJsonPar
 import { ThreadSidebar } from './components/ThreadSidebar';
 import { DashboardPinModal, DashboardPinResult } from './components/DashboardPinModal';
 import { DashboardView } from './components/DashboardView';
+import { branding } from './branding.config';
+import { resolveBrandAsset } from './brandingAssets';
+
+type GreetingPeriod = 'morning' | 'afternoon' | 'evening' | 'night';
+
+type GreetingState = {
+  message: string;
+  subtext: string;
+  icon: LucideIcon;
+  period: GreetingPeriod;
+};
+
+const greetingMap: Record<GreetingPeriod, { label: string; subtext: string; icon: LucideIcon }> = {
+  morning: {
+    label: 'Good morning',
+    subtext: 'Let’s turn your questions into insight.',
+    icon: Sunrise
+  },
+  afternoon: {
+    label: 'Good afternoon',
+    subtext: 'I’m ready to help you move work forward.',
+    icon: Sun
+  },
+  evening: {
+    label: 'Good evening',
+    subtext: 'A perfect time to review results and plan ahead.',
+    icon: Sunset
+  },
+  night: {
+    label: 'Good night',
+    subtext: 'I’ll stay sharp so you can wrap up confidently.',
+    icon: Moon
+  }
+};
+
+const resolveGreeting = (): GreetingState => {
+  const hour = new Date().getHours();
+  let period: GreetingPeriod = 'afternoon';
+  if (hour < 12) {
+    period = 'morning';
+  } else if (hour < 17) {
+    period = 'afternoon';
+  } else if (hour < 21) {
+    period = 'evening';
+  } else {
+    period = 'night';
+  }
+  const meta = greetingMap[period];
+  const name = branding.defaultUser || 'there';
+  return {
+    message: `${meta.label}, ${name}`,
+    subtext: meta.subtext,
+    icon: meta.icon,
+    period
+  };
+};
+
+const headerLogo = resolveBrandAsset(branding.logoHeader);
 
 export const Chat: React.FC = () => {
   // Event type labels mapping (1-2 words each)
@@ -84,6 +143,7 @@ export const Chat: React.FC = () => {
   } | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const isDashboardView = viewMode === 'dashboard' && !!selectedDashboardId;
+  const [greeting, setGreeting] = useState<GreetingState>(() => resolveGreeting());
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const isConnectedRef = useRef(false);
@@ -102,6 +162,13 @@ export const Chat: React.FC = () => {
   useEffect(() => {
     setNewThreadAgent(selectedAgent);
   }, [selectedAgent]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setGreeting(resolveGreeting()), 60000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const addMessage = useCallback((message: Message) => {
     setMessages(prev => [...prev, message]);
@@ -827,110 +894,141 @@ export const Chat: React.FC = () => {
     }
   };
 
+  const GreetingIcon = greeting.icon;
+
   return (
     <>
-    <div className="flex h-screen bg-gray-50">
-      <ThreadSidebar
-        threads={persistedThreads}
-        agents={agents}
-        filterAgent={threadFilterAgent}
-        onFilterChange={handleThreadFilterChange}
-        selectedThreadId={currentThreadId}
-        onSelectThread={handleThreadSelect}
-        onNewThread={() => handleNewThread(newThreadAgent)}
-        onRefresh={refreshPersistedThreads}
-        isLoading={isHistoryLoading}
-        newThreadAgent={newThreadAgent}
-        onNewThreadAgentChange={setNewThreadAgent}
-        disableNewThread={isProcessing || isHistoryLoading}
-        dashboards={dashboards}
-        selectedDashboardId={selectedDashboardId}
-        onSelectDashboard={handleDashboardSelect}
-        onNewDashboard={handleNewDashboard}
-        onDashboardRefresh={handleDashboardRefresh}
-        isDashboardLoading={isDashboardLoading}
-        maxDashboardPlots={maxDashboardPlots}
-      />
-      <div className="flex flex-col flex-1">
-        <div className="bg-white shadow-sm border-b border-gray-200">
+      <div className="h-screen flex flex-col brand-shell">
+        <header className="bg-white border-b border-brand shadow-sm">
           {isDashboardView ? (
-            <div className="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="px-6 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <div className="text-xs uppercase text-gray-500">Dashboard</div>
-                <div className="text-sm font-semibold text-gray-900">
+                <p className="text-xs uppercase text-brand-muted">Dashboard</p>
+                <p className="text-sm font-semibold text-brand-text">
                   {activeDashboard?.dashboard.name || 'Loading...'}
-                </div>
-                <div className="text-xs text-gray-500">
+                </p>
+                <p className="text-xs text-brand-muted">
                   {selectedDashboardId}
-                </div>
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleDashboardRefresh}
-                  className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                  className="btn btn-outline btn-sm"
                 >
+                  <RefreshCw size={14} />
                   Refresh
                 </button>
                 <button
                   onClick={exitDashboardView}
-                  className="px-3 py-2 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                  className="btn btn-secondary btn-sm"
                 >
                   Back to Threads
                 </button>
               </div>
             </div>
           ) : (
-            <div className="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div>
-                <div className="text-xs uppercase text-gray-500">Thread</div>
-                <div className="text-sm font-mono text-gray-800">
-                  {currentThreadId || 'New thread'}
+            <div className="px-6 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-3">
+                {headerLogo && (
+                  <img src={headerLogo} alt={`${branding.appShortName} logo`} className="h-8 w-auto" />
+                )}
+                <div>
+                  <p className="text-xs uppercase text-brand-muted">Active Thread</p>
+                  <p className="text-sm font-mono text-brand-text">
+                    {currentThreadId || 'New thread'}
+                  </p>
                 </div>
               </div>
-              <div className="text-sm text-gray-600">
-                Agent: <span className="font-semibold text-gray-900">{selectedAgent}</span>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-brand-muted">
+                <span className="flex items-center gap-2">
+                  <MessageCircle size={16} className="text-brand-muted" />
+                  Agent: <span className="font-semibold text-brand-text">{selectedAgent}</span>
+                </span>
+                {isProcessing && (
+                  <button
+                    onClick={handleStopJob}
+                    className="btn btn-outline btn-sm text-red-600 border border-red-200"
+                  >
+                    Stop Job
+                  </button>
+                )}
               </div>
-              {isProcessing && (
-                <button
-                  onClick={handleStopJob}
-                  className="px-4 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
-                >
-                  Stop Job
-                </button>
-              )}
             </div>
           )}
-        </div>
-
-        {isDashboardView ? (
-          <DashboardView
-            details={activeDashboard}
+        </header>
+        <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
+          <ThreadSidebar
+            className="w-full md:w-auto md:flex-[0.25] lg:flex-[0.18] min-w-[220px] max-w-sm"
+            threads={persistedThreads}
+            agents={agents}
+            filterAgent={threadFilterAgent}
+            onFilterChange={handleThreadFilterChange}
+            selectedThreadId={currentThreadId}
+            onSelectThread={handleThreadSelect}
+            onNewThread={() => handleNewThread(newThreadAgent)}
+            onRefresh={refreshPersistedThreads}
+            isLoading={isHistoryLoading}
+            newThreadAgent={newThreadAgent}
+            onNewThreadAgentChange={setNewThreadAgent}
+            disableNewThread={isProcessing || isHistoryLoading}
             dashboards={dashboards}
-            isLoading={isDashboardLoading}
-            onMovePlot={handleMovePlot}
-            onRemovePlot={handleRemovePlot}
-            onLayoutChange={handlePlotLayoutChange}
-            error={dashboardError}
+            selectedDashboardId={selectedDashboardId}
+            onSelectDashboard={handleDashboardSelect}
+            onNewDashboard={handleNewDashboard}
+            onDashboardRefresh={handleDashboardRefresh}
+            isDashboardLoading={isDashboardLoading}
+            maxDashboardPlots={maxDashboardPlots}
           />
-        ) : (
-          <>
-            <MessageList
-              messages={messages}
-              isLoadingHistory={isHistoryLoading}
-              onPinChart={handlePinChartRequest}
-              threadId={currentThreadId}
-              defaultAgentType={selectedAgent}
-            />
+          <div className="flex flex-1 flex-col overflow-hidden border-t md:border-t-0 md:border-l border-brand/40">
+            {isDashboardView ? (
+              <DashboardView
+                details={activeDashboard}
+                dashboards={dashboards}
+                isLoading={isDashboardLoading}
+                onMovePlot={handleMovePlot}
+                onRemovePlot={handleRemovePlot}
+                onLayoutChange={handlePlotLayoutChange}
+                error={dashboardError}
+              />
+            ) : (
+              <>
+                <div className="px-4 sm:px-6 pt-4 sm:pt-6">
+                  <div className="panel p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-3">
+                      {GreetingIcon && (
+                        <div className="h-10 w-10 rounded-full surface-muted flex items-center justify-center text-brand-muted">
+                          <GreetingIcon size={20} />
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs uppercase text-brand-muted">Welcome back</p>
+                        <p className="text-xl font-semibold text-brand-text">{greeting.message}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-brand-muted">{greeting.subtext}</p>
+                  </div>
+                </div>
+                <MessageList
+                  messages={messages}
+                  isLoadingHistory={isHistoryLoading}
+                  onPinChart={handlePinChartRequest}
+                  threadId={currentThreadId}
+                  defaultAgentType={selectedAgent}
+                />
 
-            <MessageInput
-              onSendMessage={sendMessage}
-              isProcessing={isProcessing}
-              disabled={isHistoryLoading}
-            />
-          </>
-        )}
+                <div className="px-4 sm:px-6 pb-4 sm:pb-6">
+                  <MessageInput
+                    onSendMessage={sendMessage}
+                    isProcessing={isProcessing}
+                    disabled={isHistoryLoading}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
       <DashboardPinModal
         isOpen={Boolean(pinModalData)}
         dashboards={dashboards}

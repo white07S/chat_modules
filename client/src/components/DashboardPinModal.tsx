@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { X, Pin } from 'lucide-react';
 import { DashboardSummary } from '../api';
 
 export interface DashboardPinResult {
@@ -62,42 +63,45 @@ export const DashboardPinModal: React.FC<DashboardPinModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
       <form
         onSubmit={handleSubmit}
-        className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4"
+        className="panel w-full max-w-md p-6 space-y-4"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Pin chart to dashboard</h2>
+          <div className="flex items-center gap-2 text-lg font-semibold text-brand-text">
+            <Pin size={18} />
+            Pin chart to dashboard
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
+            className="btn btn-icon btn-ghost"
           >
-            ✕
+            <X size={16} />
           </button>
         </div>
         <div className="space-y-2">
-          <label className="text-xs font-semibold uppercase text-gray-600">
+          <label className="text-xs font-semibold uppercase text-brand-muted">
             Chart title
             <input
               type="text"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              className="brand-input mt-1 text-sm"
               placeholder="Chart title"
             />
           </label>
         </div>
         <div className="space-y-2">
-          <label className="text-xs font-semibold uppercase text-gray-600">
+          <label className="text-xs font-semibold uppercase text-brand-muted">
             Destination dashboard
           </label>
           {dashboards.length > 0 && (
             <select
               value={selection}
               onChange={(event) => setSelection(event.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              className="brand-input text-sm"
             >
               {dashboards.map((dashboard) => (
                 <option
@@ -122,27 +126,25 @@ export const DashboardPinModal: React.FC<DashboardPinModalProps> = ({
               value={newDashboardName}
               onChange={(event) => setNewDashboardName(event.target.value)}
               placeholder="Dashboard name"
-              className="w-full border border-blue-300 rounded-md px-3 py-2 text-sm"
+              className="brand-input text-sm"
             />
           )}
         </div>
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-brand-muted">
           Each dashboard can hold up to {maxPlots} charts. Dashboards at capacity are disabled.
         </div>
         <div className="flex items-center justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+            className="btn btn-outline btn-sm"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={!canSubmit}
-            className={`px-4 py-2 text-sm rounded-md text-white ${
-              canSubmit ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-300 cursor-not-allowed'
-            }`}
+            className="btn btn-primary btn-sm"
           >
             Pin chart
           </button>
