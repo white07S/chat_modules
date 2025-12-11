@@ -1,28 +1,29 @@
-{"level":"info","time":"2025-12-11T07:44:56.840Z","pid":38367,"hostname":"localhost","event":"server_startup","config":{"logLevel":"info","logFile":"/Users/preetam/Develop/codex_chat/server/logs/server.jsonl"},"msg":"Logger initialized"}
-{"level":"info","time":"2025-12-11T07:44:56.847Z","pid":38367,"hostname":"localhost","event":"server_init","msg":"Initializing Codex Chat Server"}
-{"level":"info","time":"2025-12-11T07:44:56.865Z","pid":38367,"hostname":"localhost","event":"db_schema_ready","msg":"Ensured SQL.js schema exists"}
-{"level":"info","time":"2025-12-11T07:44:56.866Z","pid":38367,"hostname":"localhost","event":"agent_manager_init","msg":"Initializing AgentManager"}
-{"level":"info","time":"2025-12-11T07:44:56.870Z","pid":38367,"hostname":"localhost","event":"agent_loaded","agentType":"db_agent","msg":"Agent loaded: db_agent"}
-{"level":"info","time":"2025-12-11T07:44:56.871Z","pid":38367,"hostname":"localhost","event":"agent_loaded","agentType":"chit_chat","msg":"Agent loaded: chit_chat"}
-{"level":"info","time":"2025-12-11T07:44:56.872Z","pid":38367,"hostname":"localhost","event":"agent_loaded","agentType":"viz_agent","msg":"Agent loaded: viz_agent"}
-{"level":"info","time":"2025-12-11T07:44:56.874Z","pid":38367,"hostname":"localhost","event":"agent_loaded","agentType":"doc_agent","msg":"Agent loaded: doc_agent"}
-{"level":"info","time":"2025-12-11T07:44:56.875Z","pid":38367,"hostname":"localhost","event":"server_started","port":3000,"host":"localhost","msg":"Codex Chat Server running on port 3000"}
-{"level":"info","time":"2025-12-11T07:44:58.968Z","pid":38367,"hostname":"localhost","event":"http_request","method":"GET","path":"/stream/dda123c8-36d4-414c-9ea4-e4c52499a3a0","query":{"agentType":"chit_chat"},"ip":"::1","msg":"GET /stream/dda123c8-36d4-414c-9ea4-e4c52499a3a0"}
-{"level":"info","time":"2025-12-11T07:44:58.969Z","pid":38367,"hostname":"localhost","event":"sse_client_connected","clientId":"dda123c8-36d4-414c-9ea4-e4c52499a3a0","agentType":"chit_chat","msg":"SSE client connected"}
-{"level":"info","time":"2025-12-11T07:44:59.628Z","pid":38367,"hostname":"localhost","event":"sse_client_disconnected","clientId":"dda123c8-36d4-414c-9ea4-e4c52499a3a0","msg":"SSE client disconnected"}
-{"level":"info","time":"2025-12-11T07:44:59.749Z","pid":38367,"hostname":"localhost","event":"http_request","method":"GET","path":"/agents","query":{},"ip":"::1","msg":"GET /agents"}
-{"level":"info","time":"2025-12-11T07:44:59.754Z","pid":38367,"hostname":"localhost","event":"http_request","method":"GET","path":"/agents","query":{},"ip":"::1","msg":"GET /agents"}
-{"level":"info","time":"2025-12-11T07:44:59.756Z","pid":38367,"hostname":"localhost","event":"http_request","method":"GET","path":"/dashboards","query":{},"ip":"::1","msg":"GET /dashboards"}
-{"level":"info","time":"2025-12-11T07:44:59.765Z","pid":38367,"hostname":"localhost","event":"http_request","method":"GET","path":"/stream/d5a00d7b-071c-4d39-b24d-342382e914b1","query":{"agentType":"chit_chat"},"ip":"::1","msg":"GET /stream/d5a00d7b-071c-4d39-b24d-342382e914b1"}
-{"level":"info","time":"2025-12-11T07:44:59.766Z","pid":38367,"hostname":"localhost","event":"sse_client_connected","clientId":"d5a00d7b-071c-4d39-b24d-342382e914b1","agentType":"chit_chat","msg":"SSE client connected"}
-{"level":"info","time":"2025-12-11T07:44:59.766Z","pid":38367,"hostname":"localhost","event":"http_request","method":"GET","path":"/dashboards","query":{},"ip":"::1","msg":"GET /dashboards"}
-{"level":"info","time":"2025-12-11T07:44:59.768Z","pid":38367,"hostname":"localhost","event":"http_request","method":"GET","path":"/sessions","query":{},"ip":"::1","msg":"GET /sessions"}
-{"level":"info","time":"2025-12-11T07:44:59.770Z","pid":38367,"hostname":"localhost","event":"http_request","method":"GET","path":"/sessions","query":{},"ip":"::1","msg":"GET /sessions"}
-{"level":"info","time":"2025-12-11T07:45:02.392Z","pid":38367,"hostname":"localhost","event":"http_request","method":"POST","path":"/chat","query":{},"ip":"::1","msg":"POST /chat"}
-{"level":"info","time":"2025-12-11T07:45:02.394Z","pid":38367,"hostname":"localhost","event":"chat_processing_start","jobId":"9c9df824-412c-4fe7-9a92-6a708fc9993a","agentType":"chit_chat","msg":"Starting chat processing"}
-{"level":"info","time":"2025-12-11T07:45:02.394Z","pid":38367,"hostname":"localhost","event":"thread_started","threadId":"temp_chit_chat_1765439102394_zxu4pc","agentType":"chit_chat","msg":"Thread started for chit_chat"}
-{"level":"info","time":"2025-12-11T07:45:02.483Z","pid":38367,"hostname":"localhost","event":"thread_id_updated","oldThreadId":"temp_chit_chat_1765439102394_zxu4pc","newThreadId":"019b0c5e-ddfb-7f60-99a1-48210c258727","msg":"Updated thread id to actual Codex id"}
-{"level":"info","time":"2025-12-11T07:45:04.795Z","pid":38367,"hostname":"localhost","event":"significant_agent_event","jobId":"9c9df824-412c-4fe7-9a92-6a708fc9993a","eventType":"item.completed","msg":"Significant event: item.completed"}
-{"level":"info","time":"2025-12-11T07:45:04.916Z","pid":38367,"hostname":"localhost","event":"significant_agent_event","jobId":"9c9df824-412c-4fe7-9a92-6a708fc9993a","eventType":"turn.completed","usage":{"input_tokens":6567,"cached_input_tokens":0,"output_tokens":11},"msg":"Significant event: turn.completed"}
-{"level":"info","time":"2025-12-11T07:45:04.920Z","pid":38367,"hostname":"localhost","event":"chat_processing_complete","jobId":"9c9df824-412c-4fe7-9a92-6a708fc9993a","duration":2525,"msg":"Chat processing completed"}
-{"level":"info","time":"2025-12-11T07:45:04.924Z","pid":38367,"hostname":"localhost","event":"http_request","method":"GET","path":"/sessions","query":{},"ip":"::1","msg":"GET /sessions"}
+{"level":"info","time":"2025-12-11T08:55:02.059Z","pid":48431,"hostname":"localhost","event":"server_startup","config":{"logLevel":"info","logFile":"/Users/preetam/Develop/codex_chat/server/logs/server.jsonl"},"msg":"Logger initialized"}
+{"level":"info","time":"2025-12-11T08:55:02.064Z","pid":48431,"hostname":"localhost","event":"server_init","msg":"Initializing Codex Chat Server"}
+{"level":"info","time":"2025-12-11T08:55:02.079Z","pid":48431,"hostname":"localhost","event":"db_schema_ready","msg":"Ensured SQL.js schema exists"}
+{"level":"info","time":"2025-12-11T08:55:02.080Z","pid":48431,"hostname":"localhost","event":"agent_manager_init","msg":"Initializing AgentManager"}
+{"level":"info","time":"2025-12-11T08:55:02.083Z","pid":48431,"hostname":"localhost","event":"agent_loaded","agentType":"db_agent","msg":"Agent loaded: db_agent"}
+{"level":"info","time":"2025-12-11T08:55:02.084Z","pid":48431,"hostname":"localhost","event":"agent_loaded","agentType":"chit_chat","msg":"Agent loaded: chit_chat"}
+{"level":"info","time":"2025-12-11T08:55:02.086Z","pid":48431,"hostname":"localhost","event":"agent_loaded","agentType":"viz_agent","msg":"Agent loaded: viz_agent"}
+{"level":"info","time":"2025-12-11T08:55:02.087Z","pid":48431,"hostname":"localhost","event":"agent_loaded","agentType":"doc_agent","msg":"Agent loaded: doc_agent"}
+{"level":"info","time":"2025-12-11T08:55:02.088Z","pid":48431,"hostname":"localhost","event":"server_started","port":3000,"host":"localhost","msg":"Codex Chat Server running on port 3000"}
+{"level":"info","time":"2025-12-11T08:55:30.896Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/agents","query":{},"ip":"::1","msg":"GET /agents"}
+{"level":"info","time":"2025-12-11T08:55:30.902Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/agents","query":{},"ip":"::1","msg":"GET /agents"}
+{"level":"info","time":"2025-12-11T08:55:30.903Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/dashboards","query":{},"ip":"::1","msg":"GET /dashboards"}
+{"level":"info","time":"2025-12-11T08:55:30.909Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/sessions","query":{},"ip":"::1","msg":"GET /sessions"}
+{"level":"info","time":"2025-12-11T08:55:30.911Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/dashboards","query":{},"ip":"::1","msg":"GET /dashboards"}
+{"level":"info","time":"2025-12-11T08:55:30.912Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/sessions","query":{},"ip":"::1","msg":"GET /sessions"}
+{"level":"info","time":"2025-12-11T08:55:47.794Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/agents","query":{},"ip":"::1","msg":"GET /agents"}
+{"level":"info","time":"2025-12-11T08:55:47.795Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/agents","query":{},"ip":"::1","msg":"GET /agents"}
+{"level":"info","time":"2025-12-11T08:55:47.796Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/dashboards","query":{},"ip":"::1","msg":"GET /dashboards"}
+{"level":"info","time":"2025-12-11T08:55:47.800Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/sessions","query":{},"ip":"::1","msg":"GET /sessions"}
+{"level":"info","time":"2025-12-11T08:55:47.802Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/dashboards","query":{},"ip":"::1","msg":"GET /dashboards"}
+{"level":"info","time":"2025-12-11T08:55:47.805Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/sessions","query":{},"ip":"::1","msg":"GET /sessions"}
+{"level":"info","time":"2025-12-11T08:56:01.170Z","pid":48431,"hostname":"localhost","event":"http_request","method":"POST","path":"/chat","query":{},"ip":"::1","msg":"POST /chat"}
+{"level":"info","time":"2025-12-11T08:56:01.171Z","pid":48431,"hostname":"localhost","event":"chat_processing_start","jobId":"5b76d6ff-1d24-411f-83d9-512bef790576","agentType":"chit_chat","msg":"Starting chat processing"}
+{"level":"info","time":"2025-12-11T08:56:01.171Z","pid":48431,"hostname":"localhost","event":"thread_started","threadId":"temp_chit_chat_1765443361171_d8e79","agentType":"chit_chat","msg":"Thread started for chit_chat"}
+{"level":"info","time":"2025-12-11T08:56:01.263Z","pid":48431,"hostname":"localhost","event":"thread_id_updated","oldThreadId":"temp_chit_chat_1765443361171_d8e79","newThreadId":"019b0c9f-d9d6-7c12-8e70-b3c4f4d81eae","msg":"Updated thread id to actual Codex id"}
+{"level":"info","time":"2025-12-11T08:56:03.457Z","pid":48431,"hostname":"localhost","event":"significant_agent_event","jobId":"5b76d6ff-1d24-411f-83d9-512bef790576","eventType":"item.completed","msg":"Significant event: item.completed"}
+{"level":"info","time":"2025-12-11T08:56:03.679Z","pid":48431,"hostname":"localhost","event":"significant_agent_event","jobId":"5b76d6ff-1d24-411f-83d9-512bef790576","eventType":"turn.completed","usage":{"input_tokens":6567,"cached_input_tokens":0,"output_tokens":11},"msg":"Significant event: turn.completed"}
+{"level":"info","time":"2025-12-11T08:56:03.686Z","pid":48431,"hostname":"localhost","event":"chat_processing_complete","jobId":"5b76d6ff-1d24-411f-83d9-512bef790576","duration":2512,"msg":"Chat processing completed"}
+{"level":"info","time":"2025-12-11T08:56:03.700Z","pid":48431,"hostname":"localhost","event":"http_request","method":"GET","path":"/sessions","query":{},"ip":"::1","msg":"GET /sessions"}
